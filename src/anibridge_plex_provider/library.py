@@ -556,7 +556,7 @@ class PlexLibraryProvider(LibraryProvider):
                 f"Webhook: Matched webhook event {payload.event_type} to provider user "
                 f"ID {self._user.key} for sync"
             )
-            return (True, tuple(payload.top_level_rating_key))
+            return (True, (payload.top_level_rating_key,))
 
         _LOG.debug(
             f"Webhook: Ignoring event {payload.event_type} for account ID "
