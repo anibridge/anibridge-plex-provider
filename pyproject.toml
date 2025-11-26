@@ -1,7 +1,7 @@
 [project]
-name = "anibridge-example-provider"
+name = "anibridge-plex-provider"
 version = "0.1.0"
-description = "Example provider for the AniBridge project."
+description = "Plex provider for the AniBridge project."
 readme = "README.md"
 requires-python = ">=3.14"
 
@@ -20,12 +20,16 @@ classifiers = [
 ]
 
 dependencies = [
+    "aiohttp>=3.13.2",
     "anibridge-library-interface @ git+https://github.com/anibridge/anibridge-library-interface.git",
-    "anibridge-list-interface @ git+https://github.com/anibridge/anibridge-list-interface.git",
+    "limiter>=0.5.0",
+    "plexapi>=4.17.2",
+    "pydantic>=2.12.4",
+    "tzlocal>=5.3.1",
 ]
 
 [tool.hatch.build]
-packages = ["src/anibridge_example_provider"]
+packages = ["src/anibridge_plex_provider"]
 
 [tool.hatch.metadata]
 allow-direct-references = true
