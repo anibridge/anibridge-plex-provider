@@ -281,7 +281,7 @@ class PlexClient:
     def _build_modified_filter(
         self, section: LibrarySection, reference: datetime
     ) -> dict:
-        reference_dt = self._coerce_datetime(reference)
+        reference_dt = reference.astimezone()
         if reference_dt is None:
             reference_dt = datetime.now(tz=UTC)
 
@@ -375,16 +375,6 @@ class PlexClient:
         )
         self._watchlist_cache = entry
         return entry
-
-    def _coerce_datetime(self, value: datetime | None) -> datetime | None:
-        """Convert a datetime to a timezone-aware UTC datetime."""
-        if value is None:
-            return None
-        if value.tzinfo is None:
-            dt = value.astimezone()  # astimezone() should localize
-            dt_utc = dt.astimezone(UTC)
-            return dt_utc
-        return value.astimezone(UTC)
 
     def _ensure_user_client(self) -> PlexServer:
         """Ensure the user Plex client is available."""
