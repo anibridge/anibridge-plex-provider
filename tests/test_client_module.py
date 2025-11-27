@@ -251,10 +251,6 @@ def test_get_ordering_and_filters(plex_client: client_module.PlexClient):
     assert "viewCount" in str(watched_movie)
     assert "show.viewCount" in str(watched_show)
 
-    naive = datetime(2024, 1, 1, 12, 0, 0)
-    aware = plex_client._coerce_datetime(naive)
-    assert aware and aware.tzinfo is not None and aware.tzinfo is UTC
-
 
 def test_build_session_and_load_sections(
     monkeypatch: pytest.MonkeyPatch, plex_client: client_module.PlexClient

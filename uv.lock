@@ -77,7 +77,7 @@ wheels = [
 [[package]]
 name = "anibridge-library-interface"
 version = "0.1.0"
-source = { git = "https://github.com/anibridge/anibridge-library-interface.git#9ffed3aaed83affbcaada87e25d2049558d859da" }
+source = { git = "https://github.com/anibridge/anibridge-library-interface.git#9ad60f5297d2c381350eb5e89d2abccb12a8b332" }
 dependencies = [
     { name = "starlette" },
 ]

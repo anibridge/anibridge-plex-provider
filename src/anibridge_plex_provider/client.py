@@ -197,7 +197,7 @@ class PlexClient:
             return []
 
         entries = [
-            (str(record.ratingKey), record.viewedAt)
+            (str(record.ratingKey), record.viewedAt.astimezone())
             for record in history_objects
             if record.viewedAt is not None
         ]
