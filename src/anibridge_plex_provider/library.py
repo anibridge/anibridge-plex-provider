@@ -9,9 +9,7 @@ from typing import TYPE_CHECKING, Literal, cast
 import plexapi.library as plexapi_library
 import plexapi.video as plexapi_video
 from anibridge.library import (
-    ExternalId,
     HistoryEntry,
-    IdNameSpace,
     LibraryEpisode,
     LibraryMedia,
     LibraryMovie,
@@ -20,6 +18,7 @@ from anibridge.library import (
     LibrarySection,
     LibraryShow,
     LibraryUser,
+    MappingGraph,
     MediaKind,
     library_provider,
 )
@@ -33,7 +32,7 @@ if TYPE_CHECKING:
 
 _LOG = getLogger(__name__)
 
-_GUID_NAMESPACE_MAP: dict[str, IdNameSpace] = {
+_GUID_NAMESPACE_MAP: dict[str, str] = {
     # Plex Movie/Series agents
     "imdb": "imdb",
     "tmdb": "tmdb",
@@ -141,13 +140,13 @@ class PlexLibraryMedia(LibraryMedia):
         """
         return await self._provider.get_history(self._item)
 
-    def ids(self) -> Sequence[ExternalId]:
+    def ids(self) -> dict[str, str]:
         """Extract external IDs from the Plex media item's GUIDs.
 
         Returns:
             Sequence[ExternalId]: A sequence of external identifiers.
         """
-        ids: dict[tuple[str, str], ExternalId] = {}
+        ids: dict[str, str] = {}
 
         for guid in self._item.guids:
             if not guid.id or "://" not in guid.id:
@@ -158,14 +157,13 @@ class PlexLibraryMedia(LibraryMedia):
             if not namespace:
                 continue
             value = suffix.split("?", 1)[0]
-            key = (namespace, value)
-            ids.setdefault(key, ExternalId(namespace=namespace, value=value))
+            ids.setdefault(namespace, value)
 
         if self._item.guid:
             value = self._item.guid.rsplit("/", 1)[-1]
-            ids.setdefault(("plex", value), ExternalId("plex", value))
+            ids.setdefault("plex", value)
 
-        return tuple(ids.values())
+        return ids
 
     def provider(self) -> PlexLibraryProvider:
         """Return the provider that owns this entity.
@@ -563,6 +561,35 @@ class PlexLibraryProvider(LibraryProvider):
             f"{payload.account_id}"
         )
         return (False, tuple())
+
+    def resolve_mappings(
+        self,
+        mapping: MappingGraph,
+        *,
+        scope: str | None = None,
+    ) -> str | None:
+        """Select a Plex library key from a mapping graph.
+
+        Args:
+            mapping (MappingGraph): The mapping graph to resolve.
+            scope (str | None): Optional scope to filter descriptors by.
+
+        Returns:
+            str | None: The resolved Plex library key, or None if not found.
+        """
+        for edge in mapping.edges:
+            for descriptor in (edge.source, edge.destination):
+                if descriptor.provider != self.NAMESPACE:
+                    continue
+                if scope and descriptor.scope != scope:
+                    continue
+                return descriptor.entry_id
+
+        for descriptor in mapping.descriptors():
+            if descriptor.provider == self.NAMESPACE:
+                return descriptor.entry_id
+
+        return None
 
     async def clear_cache(self) -> None:
         """Reset any cached Plex responses maintained by the provider."""
