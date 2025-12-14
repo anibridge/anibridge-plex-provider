@@ -144,7 +144,7 @@ class PlexLibraryMedia(LibraryMedia):
         """Extract external IDs from the Plex media item's GUIDs.
 
         Returns:
-            Sequence[ExternalId]: A sequence of external identifiers.
+            dict[str, str]: A mapping of external ID namespaces to their values.
         """
         ids: dict[str, str] = {}
 
@@ -156,6 +156,16 @@ class PlexLibraryMedia(LibraryMedia):
             namespace = _GUID_NAMESPACE_MAP.get(prefix)
             if not namespace:
                 continue
+
+            if namespace == "tmdb":
+                namespace = (
+                    "tmdb_movie" if self.media_kind == MediaKind.MOVIE else "tmdb_show"
+                )
+            if namespace == "tvdb":
+                namespace = (
+                    "tvdb_movie" if self.media_kind == MediaKind.MOVIE else "tvdb_show"
+                )
+
             value = suffix.split("?", 1)[0]
             ids.setdefault(namespace, value)
 
