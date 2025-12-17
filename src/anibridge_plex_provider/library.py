@@ -18,7 +18,6 @@ from anibridge.library import (
     LibrarySection,
     LibraryShow,
     LibraryUser,
-    MappingGraph,
     MediaKind,
     library_provider,
 )
@@ -571,35 +570,6 @@ class PlexLibraryProvider(LibraryProvider):
             f"{payload.account_id}"
         )
         return (False, tuple())
-
-    def resolve_mappings(
-        self,
-        mapping: MappingGraph,
-        *,
-        scope: str | None = None,
-    ) -> str | None:
-        """Select a Plex library key from a mapping graph.
-
-        Args:
-            mapping (MappingGraph): The mapping graph to resolve.
-            scope (str | None): Optional scope to filter descriptors by.
-
-        Returns:
-            str | None: The resolved Plex library key, or None if not found.
-        """
-        for edge in mapping.edges:
-            for descriptor in (edge.source, edge.destination):
-                if descriptor.provider != self.NAMESPACE:
-                    continue
-                if scope and descriptor.scope != scope:
-                    continue
-                return descriptor.entry_id
-
-        for descriptor in mapping.descriptors():
-            if descriptor.provider == self.NAMESPACE:
-                return descriptor.entry_id
-
-        return None
 
     async def clear_cache(self) -> None:
         """Reset any cached Plex responses maintained by the provider."""
