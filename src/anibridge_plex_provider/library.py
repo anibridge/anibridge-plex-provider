@@ -1,5 +1,6 @@
 """Plex library provider implementation."""
 
+import base64
 import itertools
 from collections.abc import Sequence
 from datetime import datetime
@@ -8,6 +9,7 @@ from typing import TYPE_CHECKING, Literal, cast
 
 import plexapi.library as plexapi_library
 import plexapi.video as plexapi_video
+import requests
 from anibridge.library import (
     HistoryEntry,
     LibraryEpisode,
@@ -213,12 +215,27 @@ class PlexLibraryMedia(LibraryMedia):
 
     @property
     def poster_image(self) -> str | None:
-        """Return the full URL to the item's poster artwork if available."""
+        """Return a base64 data URL for the item's poster artwork if available.
+
+        We need to encode the image as a data URL because Plex requires authentication,
+        so direct linking would expose the token in client image URLs.
+        """
         if not self._item.thumb:
             return None
+
         try:
             bundle = self._provider._client.bundle()
-            return bundle.user_client.url(self._item.thumb)
+            url = bundle.user_client.url(self._item.thumb, includeToken=True)
+
+            # Low timeout because this is low priority
+            response = requests.get(url, timeout=3)
+            response.raise_for_status()
+
+            content_type = response.headers.get("Content-Type", "image/jpeg")
+            encoded = base64.b64encode(response.content).decode("utf-8")
+
+            return f"data:{content_type};base64,{encoded}"
+
         except Exception:
             return None
 
