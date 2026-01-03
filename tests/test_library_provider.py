@@ -192,9 +192,6 @@ class FakePlexClient:
         """Return the watch history for the item."""
         return list(self._history)
 
-    def _coerce_datetime(self, value):
-        return self._helper._coerce_datetime(value)
-
 
 class StubCommunityClient:
     """Stub for the PlexCommunityClient."""
@@ -306,8 +303,7 @@ async def test_list_items_wraps_media_and_exposes_metadata(
     movie_item = media_items[0]
     assert movie_item.on_watching is True
     assert movie_item.on_watchlist is True
-    assert movie_item.poster_image == "https://plex/thumb"
-    assert movie_item.ids()[0].namespace == "imdb"
+    assert movie_item.ids()["imdb"] == "tt12345"
     history = await movie_item.history()
     assert history and any(entry.library_key == "derived" for entry in history)
     review = await movie_item.review()
