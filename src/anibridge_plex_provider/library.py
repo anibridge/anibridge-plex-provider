@@ -357,7 +357,7 @@ class PlexLibrarySeason(PlexLibraryMedia, LibrarySeason):
         if self._show is not None:
             return self._show
 
-        raw_parent = self._item._parent()
+        raw_parent = self._item._parent() if self._item._parent else None
         raw_show = (
             cast(plexapi_video.Show, raw_parent)
             if isinstance(raw_parent, plexapi_video.Show)
@@ -404,7 +404,7 @@ class PlexLibraryEpisode(PlexLibraryMedia, LibraryEpisode):
         if self._season is not None:
             return self._season
 
-        raw_parent = self._item._parent()
+        raw_parent = self._item._parent
         if isinstance(raw_parent, plexapi_video.Season):
             raw_season = cast(plexapi_video.Season, raw_parent)
         else:
@@ -427,8 +427,10 @@ class PlexLibraryEpisode(PlexLibraryMedia, LibraryEpisode):
         if self._show is not None:
             return self._show
 
-        raw_parent = self._item._parent()
-        raw_grandparent = raw_parent._parent() if raw_parent else None
+        raw_parent = self._item._parent() if self._item._parent else None
+        raw_grandparent = (
+            raw_parent._parent() if raw_parent and raw_parent._parent else None
+        )
 
         if isinstance(raw_parent, plexapi_video.Show):
             raw_show = raw_parent

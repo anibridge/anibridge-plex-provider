@@ -177,6 +177,10 @@ class PlexClient:
     ) -> bool:
         """Determine whether the given item appears in the Continue Watching hub."""
         self._ensure_user_client()
+
+        if not isinstance(section.key, str):
+            raise ValueError("Section key must be a string")
+
         cache_entry = self._continue_cache.get(section.key)
         now = monotonic()
         if cache_entry is None or cache_entry.expires_at <= now:
@@ -339,6 +343,9 @@ class PlexClient:
 
     def _refresh_continue_cache(self, section: LibrarySection) -> _FrozenCacheEntry:
         """Refresh the continue-watching cache for the given section."""
+        if not isinstance(section.key, str):
+            raise ValueError("Section key must be a string")
+
         rating_keys: set[str] = set()
         try:
             for item in section.continueWatching():
