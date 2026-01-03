@@ -76,10 +76,14 @@ wheels = [
 
 [[package]]
 name = "anibridge-library-interface"
-version = "0.1.0"
-source = { git = "https://github.com/anibridge/anibridge-library-interface.git#3d91dc66f405991b741836c40ce4d4e60c387131" }
+version = "0.1.1"
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "starlette" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/df/7f/3334b781709c2cea7de25cf03493f1dcd537c6eb0cb66295f487a2e1476b/anibridge_library_interface-0.1.1.tar.gz", hash = "sha256:a286a4c3bc3515e2f38651dcc46b02e17adec334e9b075c2f9768c1ca9718669", size = 6274, upload-time = "2026-01-03T09:53:19.776Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/fb/95/55e3a5c9f0a0513253596061f27bbd1ce677a67ed5e4473ad8266e07d66a/anibridge_library_interface-0.1.1-py3-none-any.whl", hash = "sha256:935873dad09826a10318e505ef461d07bd44d57b8dd110e8a3e4e7d899956983", size = 7918, upload-time = "2026-01-03T09:53:18.681Z" },
 ]
 
 [[package]]
@@ -107,7 +111,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "aiohttp", specifier = ">=3.13.2" },
-    { name = "anibridge-library-interface", git = "https://github.com/anibridge/anibridge-library-interface.git" },
+    { name = "anibridge-library-interface", specifier = ">=0.1.1" },
     { name = "limiter", specifier = ">=0.5.0" },
     { name = "plexapi", specifier = ">=4.17.2" },
     { name = "pydantic", specifier = ">=2.12.4" },
