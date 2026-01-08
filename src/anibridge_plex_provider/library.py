@@ -302,7 +302,7 @@ class PlexLibraryShow(PlexLibraryEntry, LibraryShow):
             Sequence[PlexLibraryEpisode]: All episodes in the show.
         """
         return [
-            cast(PlexLibraryEpisode, self._provider._wrap_media(self._section, episode))
+            cast(PlexLibraryEpisode, self._provider._wrap_entry(self._section, episode))
             for episode in self._item.episodes()
         ]
 
