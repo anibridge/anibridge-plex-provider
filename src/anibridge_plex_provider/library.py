@@ -12,6 +12,7 @@ import plexapi.video as plexapi_video
 import requests
 from anibridge.library import (
     HistoryEntry,
+    LibraryEntry,
     LibraryEpisode,
     LibraryMedia,
     LibraryMovie,
@@ -47,7 +48,7 @@ _GUID_NAMESPACE_MAP: dict[str, str] = {
 
 
 class PlexLibrarySection(LibrarySection):
-    """Concrete ``LibrarySection`` backed by a python-plexapi library section."""
+    """Concrete `LibrarySection` backed by a python-plexapi library section."""
 
     def __init__(
         self, provider: PlexLibraryProvider, item: plexapi_library.LibrarySection
@@ -61,29 +62,13 @@ class PlexLibrarySection(LibrarySection):
         self._provider = provider
         self._section = item
 
-        self.key = str(item.key)
-        self.title = item.title
-        self.media_kind = MediaKind.SHOW if item.type == "show" else MediaKind.MOVIE
-
-    def provider(self) -> PlexLibraryProvider:
-        """Return the provider that supplies this section.
-
-        Returns:
-            PlexLibraryProvider: The owning Plex library provider.
-        """
-        return self._provider
-
-    def raw(self):
-        """Expose the underlying Plex section object for provider access.
-
-        Returns:
-            plexapi_library.LibrarySection: The raw Plex section.
-        """
-        return self._section
+        self._key = str(item.key)
+        self._title = item.title
+        self._media_kind = MediaKind.SHOW if item.type == "show" else MediaKind.MOVIE
 
 
 class PlexLibraryMedia(LibraryMedia):
-    """Common behaviour for Plex-backed library media objects."""
+    """The base class for Plex media objects (metdata focused)."""
 
     def __init__(
         self,
@@ -103,9 +88,100 @@ class PlexLibraryMedia(LibraryMedia):
         self._provider = provider
         self._section = section
         self._item = item
-        self.media_kind = kind
-        self.key = str(item.ratingKey)
-        self.title = item.title
+        self._media_kind = kind
+
+    @property
+    def external_url(self) -> str | None:
+        """URL to the Plex online page, if available."""
+        return ""
+
+    def ids(self) -> dict[str, str]:
+        """Extract external IDs from the Plex media item's GUIDs.
+
+        Returns:
+            dict[str, str]: A mapping of external ID namespaces to their values.
+        """
+        ids: dict[str, str] = {}
+
+        for guid in self._item.guids:
+            if not guid.id or "://" not in guid.id:
+                continue
+
+            prefix, suffix = guid.id.split("://", 1)
+            namespace = _GUID_NAMESPACE_MAP.get(prefix)
+            if not namespace:
+                continue
+
+            if namespace == "tmdb":
+                namespace = (
+                    "tmdb_movie" if self._media_kind == MediaKind.MOVIE else "tmdb_show"
+                )
+            if namespace == "tvdb":
+                namespace = (
+                    "tvdb_movie" if self._media_kind == MediaKind.MOVIE else "tvdb_show"
+                )
+
+            value = suffix.split("?", 1)[0]
+            ids.setdefault(namespace, value)
+
+        if self._item.guid:
+            value = self._item.guid.rsplit("/", 1)[-1]
+            ids.setdefault("plex", value)
+
+        return ids
+
+    @property
+    def poster_image(self) -> str | None:
+        """Return a base64 data URL for the item's poster artwork if available.
+
+        We need to encode the image as a data URL because Plex requires authentication,
+        so direct linking would expose the token in client image URLs.
+        """
+        if not self._item.thumb:
+            return None
+
+        try:
+            bundle = self._provider._client.bundle()
+            url = bundle.user_client.url(self._item.thumb, includeToken=True)
+
+            # Low timeout because this is low priority
+            response = requests.get(url, timeout=3)
+            response.raise_for_status()
+
+            content_type = response.headers.get("Content-Type", "image/jpeg")
+            encoded = base64.b64encode(response.content).decode("utf-8")
+
+            return f"data:{content_type};base64,{encoded}"
+
+        except Exception:
+            return None
+
+
+class PlexLibraryEntry(LibraryEntry):
+    """Common behaviour for Plex-backed library objects."""
+
+    def __init__(
+        self,
+        provider: PlexLibraryProvider,
+        section: PlexLibrarySection,
+        item: plexapi_video.Video,
+        kind: MediaKind,
+    ) -> None:
+        """Initialize the media wrapper.
+
+        Args:
+            provider (PlexLibraryProvider): The owning Plex library provider.
+            section (PlexLibrarySection): The parent Plex library section.
+            item (plexapi_video.Video): The underlying Plex media item.
+            kind (MediaKind): The kind of media represented.
+        """
+        self._provider = provider
+        self._section = section
+        self._item = item
+        self._media_kind = kind
+        self._media = PlexLibraryMedia(provider, section, item, kind)
+        self._key = str(item.ratingKey)
+        self._title = item.title
 
     @property
     def on_watching(self) -> bool:
@@ -141,56 +217,13 @@ class PlexLibraryMedia(LibraryMedia):
         """
         return await self._provider.get_history(self._item)
 
-    def ids(self) -> dict[str, str]:
-        """Extract external IDs from the Plex media item's GUIDs.
+    def media(self) -> LibraryMedia:
+        """Return the media metadata for this item.
 
         Returns:
-            dict[str, str]: A mapping of external ID namespaces to their values.
+            LibraryMedia: The media metadata.
         """
-        ids: dict[str, str] = {}
-
-        for guid in self._item.guids:
-            if not guid.id or "://" not in guid.id:
-                continue
-
-            prefix, suffix = guid.id.split("://", 1)
-            namespace = _GUID_NAMESPACE_MAP.get(prefix)
-            if not namespace:
-                continue
-
-            if namespace == "tmdb":
-                namespace = (
-                    "tmdb_movie" if self.media_kind == MediaKind.MOVIE else "tmdb_show"
-                )
-            if namespace == "tvdb":
-                namespace = (
-                    "tvdb_movie" if self.media_kind == MediaKind.MOVIE else "tvdb_show"
-                )
-
-            value = suffix.split("?", 1)[0]
-            ids.setdefault(namespace, value)
-
-        if self._item.guid:
-            value = self._item.guid.rsplit("/", 1)[-1]
-            ids.setdefault("plex", value)
-
-        return ids
-
-    def provider(self) -> PlexLibraryProvider:
-        """Return the provider that owns this entity.
-
-        Returns:
-            PlexLibraryProvider: The owning Plex library provider.
-        """
-        return self._provider
-
-    def raw(self) -> plexapi_video.Video:
-        """Expose the underlying Plex media object.
-
-        Returns:
-            plexapi_video.Video: The raw Plex media item.
-        """
-        return self._item
+        return self._media
 
     async def review(self) -> str | None:
         """Fetch the user's review for this media item, if available.
@@ -213,35 +246,9 @@ class PlexLibraryMedia(LibraryMedia):
         self._section = PlexLibrarySection(self._provider, raw_section)
         return self._section
 
-    @property
-    def poster_image(self) -> str | None:
-        """Return a base64 data URL for the item's poster artwork if available.
 
-        We need to encode the image as a data URL because Plex requires authentication,
-        so direct linking would expose the token in client image URLs.
-        """
-        if not self._item.thumb:
-            return None
-
-        try:
-            bundle = self._provider._client.bundle()
-            url = bundle.user_client.url(self._item.thumb, includeToken=True)
-
-            # Low timeout because this is low priority
-            response = requests.get(url, timeout=3)
-            response.raise_for_status()
-
-            content_type = response.headers.get("Content-Type", "image/jpeg")
-            encoded = base64.b64encode(response.content).decode("utf-8")
-
-            return f"data:{content_type};base64,{encoded}"
-
-        except Exception:
-            return None
-
-
-class PlexLibraryMovie(PlexLibraryMedia, LibraryMovie):
-    """Concrete ``LibraryMovie`` wrapper for python-plexapi ``Movie`` objects."""
+class PlexLibraryMovie(PlexLibraryEntry, LibraryMovie):
+    """Concrete `LibraryMovie` wrapper for python-plexapi `Movie` objects."""
 
     __slots__ = ()
 
@@ -262,8 +269,8 @@ class PlexLibraryMovie(PlexLibraryMedia, LibraryMovie):
         self._item = cast(plexapi_video.Movie, self._item)
 
 
-class PlexLibraryShow(PlexLibraryMedia, LibraryShow):
-    """Concrete ``LibraryShow`` wrapper for Plex ``Show`` objects."""
+class PlexLibraryShow(PlexLibraryEntry, LibraryShow):
+    """Concrete `LibraryShow` wrapper for Plex `Show` objects."""
 
     __slots__ = ()
 
@@ -311,8 +318,8 @@ class PlexLibraryShow(PlexLibraryMedia, LibraryShow):
         )
 
 
-class PlexLibrarySeason(PlexLibraryMedia, LibrarySeason):
-    """Concrete ``LibrarySeason`` wrapper for Plex ``Season`` objects."""
+class PlexLibrarySeason(PlexLibraryEntry, LibrarySeason):
+    """Concrete `LibrarySeason` wrapper for Plex `Season` objects."""
 
     def __init__(
         self,
@@ -367,8 +374,8 @@ class PlexLibrarySeason(PlexLibraryMedia, LibrarySeason):
         return self._show
 
 
-class PlexLibraryEpisode(PlexLibraryMedia, LibraryEpisode):
-    """Concrete ``LibraryEpisode`` wrapper for Plex ``Episode`` objects."""
+class PlexLibraryEpisode(PlexLibraryEntry, LibraryEpisode):
+    """Concrete `LibraryEpisode` wrapper for Plex `Episode` objects."""
 
     def __init__(
         self,
@@ -445,7 +452,7 @@ class PlexLibraryEpisode(PlexLibraryMedia, LibraryEpisode):
 
 @library_provider
 class PlexLibraryProvider(LibraryProvider):
-    """Default Plex ``LibraryProvider`` backed by the local Plex Media Server."""
+    """Default Plex `LibraryProvider` backed by the local Plex Media Server."""
 
     NAMESPACE = "plex"
 
@@ -526,7 +533,7 @@ class PlexLibraryProvider(LibraryProvider):
         min_last_modified: datetime | None = None,
         require_watched: bool = False,
         keys: Sequence[str] | None = None,
-    ) -> Sequence[LibraryMedia]:
+    ) -> Sequence[LibraryEntry]:
         """List items in a Plex library section matching the provided criteria.
 
         Each item returned must belong to the specified section and meet the provided
@@ -542,7 +549,7 @@ class PlexLibraryProvider(LibraryProvider):
                 media keys are in this list.
 
         Returns:
-            Sequence[LibraryMedia]: The media items matching the criteria.
+            Sequence[LibraryEntry]: The entries matching the criteria.
         """
         if not isinstance(section, PlexLibrarySection):
             raise TypeError(
@@ -550,12 +557,12 @@ class PlexLibraryProvider(LibraryProvider):
             )
 
         raw_items = await self._client.list_section_items(
-            section.raw(),
+            section._section,
             min_last_modified=min_last_modified,
             require_watched=require_watched,
             keys=keys,
         )
-        return tuple(self._wrap_media(section, item) for item in raw_items)
+        return tuple(self._wrap_entry(section, item) for item in raw_items)
 
     async def parse_webhook(self, request: Request) -> tuple[bool, Sequence[str]]:
         """Parse a Plex webhook request and determine affected media items."""
@@ -606,7 +613,7 @@ class PlexLibraryProvider(LibraryProvider):
         Returns:
             bool: True if the item is on the Continue Watching list, False otherwise.
         """
-        return self._client.is_on_continue_watching(section.raw(), item)
+        return self._client.is_on_continue_watching(section._section, item)
 
     def is_on_watchlist(self, item: plexapi_video.Video) -> bool:
         """Determine whether the given item appears in the user's watchlist.
@@ -708,10 +715,10 @@ class PlexLibraryProvider(LibraryProvider):
             sections.append(wrapper)
         return sections
 
-    def _wrap_media(
+    def _wrap_entry(
         self, section: PlexLibrarySection, item: plexapi_video.Video
-    ) -> LibraryMedia:
-        """Wrap a Plex media item in the appropriate library media class."""
+    ) -> LibraryEntry:
+        """Wrap a Plex entry in the appropriate library entry class."""
         if isinstance(item, plexapi_video.Episode):
             return PlexLibraryEpisode(self, section, item)
         if isinstance(item, plexapi_video.Season):
