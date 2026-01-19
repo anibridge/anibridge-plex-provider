@@ -1,6 +1,6 @@
 [project]
 name = "anibridge-plex-provider"
-version = "0.1.2"
+version = "0.2.0b1"
 description = "Plex provider for the AniBridge project."
 readme = "README.md"
 requires-python = ">=3.14"
@@ -21,7 +21,7 @@ classifiers = [
 
 dependencies = [
     "aiohttp>=3.13.2",
-    "anibridge-library-base>=0.1.1",
+    "anibridge-library-base>=0.2.0b1",
     "limiter>=0.5.0",
     "plexapi>=4.17.2",
     "pydantic>=2.12.4",

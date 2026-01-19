@@ -24,6 +24,7 @@ from anibridge.library import (
     MediaKind,
     library_provider,
 )
+from anibridge.library.base import MappingDescriptor
 
 from anibridge_plex_provider.client import PlexClient, PlexClientConfig
 from anibridge_plex_provider.community import PlexCommunityClient
@@ -34,16 +35,25 @@ if TYPE_CHECKING:
 
 _LOG = getLogger(__name__)
 
-_GUID_NAMESPACE_MAP: dict[str, str] = {
-    # Plex Movie/Series agents
-    "imdb": "imdb",
-    "tmdb": "tmdb",
-    "tvdb": "tvdb",
-    # Legacy Plex agents
-    "com.plexapp.agents.imdb": "imdb",
-    "com.plexapp.agents.thetvdb": "tvdb",
-    "com.plexapp.agents.themoviedb": "tmdb",
-    "com.plexapp.agents.tmdb": "tmdb",
+_GUID_NAMESPACE_MAP = {
+    "movie": {
+        "imdb": "imdb_movie",
+        "tmdb": "tmdb_movie",
+        "tvdb": "tvdb_movie",
+        "com.plexapp.agents.imdb": "imdb_movie",
+        "com.plexapp.agents.themoviedb": "tmdb_movie",
+        "com.plexapp.agents.tmdb": "tmdb_movie",
+        "com.plexapp.agents.thetvdb": "tvdb_movie",
+    },
+    "show": {
+        "imdb": "imdb_show",
+        "tmdb": "tmdb_show",
+        "tvdb": "tvdb_show",
+        "com.plexapp.agents.imdb": "imdb_show",
+        "com.plexapp.agents.themoviedb": "tmdb_show",
+        "com.plexapp.agents.tmdb": "tmdb_show",
+        "com.plexapp.agents.thetvdb": "tvdb_show",
+    },
 }
 
 
@@ -94,41 +104,6 @@ class PlexLibraryMedia(LibraryMedia):
     def external_url(self) -> str | None:
         """URL to the Plex online page, if available."""
         return ""
-
-    def ids(self) -> dict[str, str]:
-        """Extract external IDs from the Plex media item's GUIDs.
-
-        Returns:
-            dict[str, str]: A mapping of external ID namespaces to their values.
-        """
-        ids: dict[str, str] = {}
-
-        for guid in self._item.guids:
-            if not guid.id or "://" not in guid.id:
-                continue
-
-            prefix, suffix = guid.id.split("://", 1)
-            namespace = _GUID_NAMESPACE_MAP.get(prefix)
-            if not namespace:
-                continue
-
-            if namespace == "tmdb":
-                namespace = (
-                    "tmdb_movie" if self._media_kind == MediaKind.MOVIE else "tmdb_show"
-                )
-            if namespace == "tvdb":
-                namespace = (
-                    "tvdb_movie" if self._media_kind == MediaKind.MOVIE else "tvdb_show"
-                )
-
-            value = suffix.split("?", 1)[0]
-            ids.setdefault(namespace, value)
-
-        if self._item.guid:
-            value = self._item.guid.rsplit("/", 1)[-1]
-            ids.setdefault("plex", value)
-
-        return ids
 
     @property
     def poster_image(self) -> str | None:
@@ -182,6 +157,23 @@ class PlexLibraryEntry(LibraryEntry):
         self._media = PlexLibraryMedia(provider, section, item, kind)
         self._key = str(item.ratingKey)
         self._title = item.title
+
+    def mapping_descriptors(self) -> Sequence[MappingDescriptor]:
+        """Return mapping descriptors for this media item.
+
+        Returns:
+            Sequence[MappingDescriptor]: The mapping descriptors.
+        """
+        descriptors: list[MappingDescriptor] = []
+        for guid in self._item.guids:
+            if not guid.id or "://" not in guid.id:
+                continue
+            prefix, suffix = guid.id.split("://", 1)
+            guid_namespace = _GUID_NAMESPACE_MAP.get(self._media_kind.value, {}).get(
+                prefix, prefix
+            )
+            descriptors.append((guid_namespace, suffix.split("?", 1)[0], None))
+        return descriptors
 
     @property
     def on_watching(self) -> bool:
@@ -373,6 +365,13 @@ class PlexLibrarySeason(PlexLibraryEntry, LibrarySeason):
         self._show = PlexLibraryShow(self._provider, self._section, raw_show)
         return self._show
 
+    def mapping_descriptors(self) -> Sequence[MappingDescriptor]:
+        """Return mapping descriptors with season scopes applied."""
+        descriptors: list[MappingDescriptor] = []
+        for descriptor in cast(PlexLibraryShow, self.show()).mapping_descriptors():
+            descriptors.append((descriptor[0], descriptor[1], f"s{self.index}"))
+        return tuple(descriptors)
+
 
 class PlexLibraryEpisode(PlexLibraryEntry, LibraryEpisode):
     """Concrete `LibraryEpisode` wrapper for Plex `Episode` objects."""
@@ -448,6 +447,10 @@ class PlexLibraryEpisode(PlexLibraryEntry, LibraryEpisode):
 
         self._show = PlexLibraryShow(self._provider, self._section, raw_show)
         return self._show
+
+    def mapping_descriptors(self) -> Sequence[MappingDescriptor]:
+        """Return mapping descriptors with season scopes applied."""
+        return cast(PlexLibrarySeason, self.season()).mapping_descriptors()
 
 
 @library_provider
