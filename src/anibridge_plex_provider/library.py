@@ -5,7 +5,7 @@ import itertools
 from collections.abc import Sequence
 from datetime import datetime
 from logging import getLogger
-from typing import TYPE_CHECKING, Literal, cast
+from typing import TYPE_CHECKING, cast
 
 import plexapi.library as plexapi_library
 import plexapi.video as plexapi_video
@@ -170,8 +170,10 @@ class PlexLibraryEntry(LibraryEntry):
                 continue
             prefix, suffix = guid.id.split("://", 1)
             guid_namespace = _GUID_NAMESPACE_MAP.get(self._media_kind.value, {}).get(
-                prefix, prefix
+                prefix
             )
+            if guid_namespace is None:
+                continue
             descriptors.append((guid_namespace, suffix.split("?", 1)[0], None))
         return descriptors
 
@@ -282,11 +284,6 @@ class PlexLibraryShow(PlexLibraryEntry, LibraryShow):
         super().__init__(provider, section, item, MediaKind.SHOW)
         self._item = cast(plexapi_video.Show, self._item)
 
-    @property
-    def ordering(self) -> Literal["tmdb", "tvdb", ""]:
-        """Return the item's preferred episode ordering."""
-        return self._provider._client.get_ordering(cast(plexapi_video.Show, self._item))
-
     def episodes(self) -> Sequence[PlexLibraryEpisode]:
         """Return all episodes belonging to the show.
 
@@ -308,6 +305,40 @@ class PlexLibraryShow(PlexLibraryEntry, LibraryShow):
             PlexLibrarySeason(self._provider, self._section, season, show=self)
             for season in self._item.seasons()
         )
+
+    def mapping_descriptors(self) -> Sequence[MappingDescriptor]:
+        """Return mapping descriptors for this show.
+
+        Includes additional logic to prefer show ordering.
+
+        Returns:
+            Sequence[MappingDescriptor]: The mapping descriptors.
+        """
+        descriptors = super().mapping_descriptors()
+        ordering = self._provider._client.get_ordering(
+            cast(plexapi_video.Show, self._item)
+        )
+        # If strict matching is enabled, filter to only the preferred ordering
+        if self._provider._strict:
+            if ordering == "tmdb":
+                descriptors = tuple(
+                    d for d in descriptors if d[0] in ("tmdb_show", "tmdb_movie")
+                )
+            elif ordering == "tvdb":
+                descriptors = tuple(
+                    d for d in descriptors if d[0] in ("tvdb_show", "tvdb_movie")
+                )
+            return descriptors
+
+        # Otherwise, sort to prefer the ordering
+        def sort_key(descriptor: MappingDescriptor) -> int:
+            if ordering == "tmdb" and descriptor[0] in ("tmdb_show", "tmdb_movie"):
+                return 0
+            if ordering == "tvdb" and descriptor[0] in ("tvdb_show", "tvdb_movie"):
+                return 0
+            return 1
+
+        return tuple(sorted(descriptors, key=sort_key))
 
 
 class PlexLibrarySeason(PlexLibraryEntry, LibrarySeason):
@@ -368,7 +399,7 @@ class PlexLibrarySeason(PlexLibraryEntry, LibrarySeason):
     def mapping_descriptors(self) -> Sequence[MappingDescriptor]:
         """Return mapping descriptors with season scopes applied."""
         descriptors: list[MappingDescriptor] = []
-        for descriptor in cast(PlexLibraryShow, self.show()).mapping_descriptors():
+        for descriptor in self.show().mapping_descriptors():
             descriptors.append((descriptor[0], descriptor[1], f"s{self.index}"))
         return tuple(descriptors)
 
@@ -450,7 +481,7 @@ class PlexLibraryEpisode(PlexLibraryEntry, LibraryEpisode):
 
     def mapping_descriptors(self) -> Sequence[MappingDescriptor]:
         """Return mapping descriptors with season scopes applied."""
-        return cast(PlexLibrarySeason, self.season()).mapping_descriptors()
+        return self.season().mapping_descriptors()
 
 
 @library_provider
@@ -466,6 +497,7 @@ class PlexLibraryProvider(LibraryProvider):
             config (dict | None): Optional configuration options for the provider.
         """
         self.config = config or {}
+
         url = self.config.get("url") or ""
         token = self.config.get("token") or ""
         user = self.config.get("user") or ""
@@ -475,13 +507,15 @@ class PlexLibraryProvider(LibraryProvider):
                 "values"
             )
 
-        self._plex_url = url
-        self._plex_token = token
-        self._plex_user = user
+        self._plex_url = str(url)
+        self._plex_token = str(token)
+        self._plex_user = str(user)
 
         self._client_config = PlexClientConfig(url=url, token=token, user=user)
-        self._section_filter = self.config.get("sections") or []
-        self._genre_filter = self.config.get("genres") or []
+
+        self._strict = bool(self.config.get("strict", True))
+        self._section_filter = list(self.config.get("sections") or [])
+        self._genre_filter = list(self.config.get("genres") or [])
 
         self._client = self._create_client()
         self._community_client: PlexCommunityClient | None = None

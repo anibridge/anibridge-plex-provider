@@ -4,6 +4,10 @@ import importlib.metadata
 import os
 import uuid
 
+from anibridge_plex_provider.library import PlexLibraryProvider
+
+__all__ = ["PlexLibraryProvider"]
+
 # The below environment variables are consumed by the python-plexapi library
 # and are used to identify the client making the requests to the Plex server.
 # Having a consistent identifier is important so that the server doesn't think

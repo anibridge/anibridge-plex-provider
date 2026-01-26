@@ -15,7 +15,9 @@ from plexapi.video import Movie, Show, Video
 
 from anibridge_plex_provider.utils import SelectiveVerifySession
 
-__all__ = ["PlexClient", "PlexClientBundle", "PlexClientConfig"]
+__all__ = ["Ordering", "PlexClient", "PlexClientBundle", "PlexClientConfig"]
+
+Ordering = Literal["tmdb", "tvdb", ""]
 
 
 @dataclass(slots=True)
@@ -216,7 +218,7 @@ class PlexClient:
 
         return item.guid is not None and item.guid in cache_entry.keys
 
-    def get_ordering(self, show: Show) -> Literal["tmdb", "tvdb", ""]:
+    def get_ordering(self, show: Show) -> Ordering:
         """Return the preferred episode ordering for the provided show."""
         if show.showOrdering:
             if show.showOrdering == "tmdbAiring":

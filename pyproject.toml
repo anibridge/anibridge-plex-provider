@@ -21,7 +21,7 @@ classifiers = [
 
 dependencies = [
     "aiohttp>=3.13.2",
-    "anibridge-library-base>=0.2.0b1",
+    "anibridge-library-base>=0.2.0b2",
     "limiter>=0.5.0",
     "plexapi>=4.17.2",
     "pydantic>=2.12.4",
