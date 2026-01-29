@@ -103,7 +103,10 @@ class PlexLibraryMedia(LibraryMedia):
     @property
     def external_url(self) -> str | None:
         """URL to the Plex online page, if available."""
-        return ""
+        if not self._item.guid:
+            return None
+        key = f"/library/metadata/{self._item.guid.rsplit('/', 1)[-1]}"
+        return f"https://app.plex.tv/desktop/#!/provider/tv.plex.provider.discover/details?key={key}"
 
     @property
     def poster_image(self) -> str | None:
