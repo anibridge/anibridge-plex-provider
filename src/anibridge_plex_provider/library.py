@@ -35,8 +35,8 @@ if TYPE_CHECKING:
 
 _LOG = getLogger(__name__)
 
-_GUID_NAMESPACE_MAP = {
-    "movie": {
+_GUID_NAMESPACE_MAP: dict[MediaKind, dict[str, str]] = {
+    MediaKind.MOVIE: {
         "imdb": "imdb_movie",
         "tmdb": "tmdb_movie",
         "tvdb": "tvdb_movie",
@@ -45,7 +45,7 @@ _GUID_NAMESPACE_MAP = {
         "com.plexapp.agents.tmdb": "tmdb_movie",
         "com.plexapp.agents.thetvdb": "tvdb_movie",
     },
-    "show": {
+    MediaKind.SHOW: {
         "imdb": "imdb_show",
         "tmdb": "tmdb_show",
         "tvdb": "tvdb_show",
@@ -167,16 +167,16 @@ class PlexLibraryEntry(LibraryEntry):
         Returns:
             Sequence[MappingDescriptor]: The mapping descriptors.
         """
+        raw_guids = [self._item.guid or ""] + [g.id for g in self._item.guids if g.id]
         descriptors: list[MappingDescriptor] = []
-        for guid in self._item.guids:
-            if not guid.id or "://" not in guid.id:
+        for guid in raw_guids:
+            if not guid or "://" not in guid:
                 continue
-            prefix, suffix = guid.id.split("://", 1)
-            guid_namespace = _GUID_NAMESPACE_MAP.get(self._media_kind.value, {}).get(
-                prefix
-            )
+            prefix, suffix = guid.split("://", 1)
+            guid_namespace = _GUID_NAMESPACE_MAP.get(self._media_kind, {}).get(prefix)
             if guid_namespace is None:
                 continue
+            # Strip query params
             descriptors.append((guid_namespace, suffix.split("?", 1)[0], None))
         return descriptors
 
