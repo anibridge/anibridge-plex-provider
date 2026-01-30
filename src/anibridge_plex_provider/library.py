@@ -26,7 +26,7 @@ from anibridge.library import (
 )
 from anibridge.library.base import MappingDescriptor
 
-from anibridge_plex_provider.client import PlexClient, PlexClientConfig
+from anibridge_plex_provider.client import PlexClient
 from anibridge_plex_provider.community import PlexCommunityClient
 from anibridge_plex_provider.webhook import PlexWebhook, PlexWebhookEventType
 
@@ -119,8 +119,10 @@ class PlexLibraryMedia(LibraryMedia):
             return None
 
         try:
-            bundle = self._provider._client.bundle()
-            url = bundle.user_client.url(self._item.thumb, includeToken=True)
+            url = self._provider._client.user_client.url(
+                self._item.thumb,
+                includeToken=True,
+            )
 
             # Low timeout because this is low priority
             response = requests.get(url, timeout=3)
@@ -514,13 +516,17 @@ class PlexLibraryProvider(LibraryProvider):
         self._plex_token = str(token)
         self._plex_user = str(user)
 
-        self._client_config = PlexClientConfig(url=url, token=token, user=user)
-
         self._strict = bool(self.config.get("strict", True))
         self._section_filter = list(self.config.get("sections") or [])
         self._genre_filter = list(self.config.get("genres") or [])
 
-        self._client = self._create_client()
+        self._client = PlexClient(
+            url=self._plex_url,
+            token=self._plex_token,
+            user=self._plex_user,
+            section_filter=self._section_filter,
+            genre_filter=self._genre_filter,
+        )
         self._community_client: PlexCommunityClient | None = None
 
         self._is_admin_user = False
@@ -532,12 +538,14 @@ class PlexLibraryProvider(LibraryProvider):
     async def initialize(self) -> None:
         """Connect to Plex and prepare provider state."""
         await self._client.initialize()
-        bundle = self._client.bundle()
-        self._is_admin_user = bundle.is_admin
-        self._user = LibraryUser(key=str(bundle.user_id), title=bundle.display_name)
+        self._is_admin_user = self._client.is_admin
+        self._user = LibraryUser(
+            key=str(self._client.user_id),
+            title=self._client.display_name,
+        )
 
         self._sections = self._build_sections()
-        self._community_client = PlexCommunityClient(self._client_config.token)
+        self._community_client = PlexCommunityClient(self._plex_token)
 
         await self.clear_cache()
 
@@ -768,11 +776,3 @@ class PlexLibraryProvider(LibraryProvider):
         if isinstance(item, plexapi_video.Movie):
             return PlexLibraryMovie(self, section, item)
         raise TypeError(f"Unsupported Plex media type: {type(item)!r}")
-
-    def _create_client(self) -> PlexClient:
-        """Construct and return a PlexClient for this provider."""
-        return PlexClient(
-            config=self._client_config,
-            section_filter=self._section_filter,
-            genre_filter=self._genre_filter,
-        )

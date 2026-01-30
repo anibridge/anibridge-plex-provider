@@ -135,23 +135,16 @@ class FakePlexClient:
         self._sections = sections
         self._items = items
         self._history = [("derived", datetime.now(tz=UTC))]
-        self._bundle = client_module.PlexClientBundle(
-            admin_client=_server_stub(),
-            user_client=_server_stub(
-                url=lambda path: f"https://plex{path}",
-            ),
-            account=_account_stub(id=1, watchlist=lambda: []),
-            target_user=None,
-            user_id=1,
-            display_name="Demo",
-            is_admin=True,
+        self._user_client = _server_stub(
+            url=lambda path, includeToken=True: f"https://plex{path}",
         )
-        cfg = client_module.PlexClientConfig(
-            url="https://plex.example",
-            token="t",
-            user="u",
+        self._account = _account_stub(id=1, watchlist=lambda: [])
+        self._is_admin = True
+        self._user_id = 1
+        self._display_name = "Demo"
+        self._helper = client_module.PlexClient(
+            url="https://plex.example", token="token", user="demo"
         )
-        self._helper = client_module.PlexClient(config=cfg)
         self.initialized = False
         self.closed = False
         self.cleared = False
@@ -164,9 +157,21 @@ class FakePlexClient:
         """Simulate client closure."""
         self.closed = True
 
-    def bundle(self) -> client_module.PlexClientBundle:
-        """Return the client bundle."""
-        return self._bundle
+    @property
+    def is_admin(self) -> bool:
+        return self._is_admin
+
+    @property
+    def user_id(self) -> int:
+        return self._user_id
+
+    @property
+    def display_name(self) -> str:
+        return self._display_name
+
+    @property
+    def user_client(self):
+        return self._user_client
 
     def sections(self):
         """Return the library sections."""
@@ -230,17 +235,13 @@ def library_setup(monkeypatch: pytest.MonkeyPatch):
     sections = [FakeRawSection("Movies", "movie")]
     fake_client = FakePlexClient(sections=sections, items=items)
 
-    monkeypatch.setattr(
-        library_module.PlexLibraryProvider,
-        "_create_client",
-        lambda self: fake_client,
-    )
     monkeypatch.setattr(library_module.plexapi_video, "Movie", StubMovie)
     monkeypatch.setattr(library_module.plexapi_video, "Show", StubShow)
     monkeypatch.setattr(library_module.plexapi_video, "Season", StubSeason)
     monkeypatch.setattr(library_module.plexapi_video, "Episode", StubEpisode)
     StubCommunityClient.instances.clear()
     monkeypatch.setattr(library_module, "PlexCommunityClient", StubCommunityClient)
+    monkeypatch.setattr(library_module, "PlexClient", lambda **_: fake_client)
 
     provider = library_module.PlexLibraryProvider(
         config={"url": "https://plex.example", "token": "token", "user": "demo"}

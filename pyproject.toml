@@ -40,6 +40,9 @@ quote-style = "double"
 [tool.ruff.lint]
 select = ["B", "D", "DOC", "E", "F", "I", "RUF", "SIM", "UP", "W"]
 
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["D"]
+
 [tool.ruff.lint.pydocstyle]
 convention = "google"
 

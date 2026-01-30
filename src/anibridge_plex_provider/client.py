@@ -15,31 +15,9 @@ from plexapi.video import Movie, Show, Video
 
 from anibridge_plex_provider.utils import SelectiveVerifySession
 
-__all__ = ["Ordering", "PlexClient", "PlexClientBundle", "PlexClientConfig"]
+__all__ = ["Ordering", "PlexClient"]
 
-Ordering = Literal["tmdb", "tvdb", ""]
-
-
-@dataclass(slots=True)
-class PlexClientConfig:
-    """Settings required to build Plex API clients."""
-
-    url: str
-    token: str
-    user: str | None
-
-
-@dataclass(slots=True)
-class PlexClientBundle:
-    """Container for Plex server connections and associated metadata."""
-
-    admin_client: PlexServer
-    user_client: PlexServer
-    account: MyPlexAccount
-    target_user: MyPlexUser | None
-    user_id: int
-    display_name: str
-    is_admin: bool
+type Ordering = Literal["tmdb", "tvdb", ""]
 
 
 @dataclass(slots=True)
@@ -56,26 +34,35 @@ class PlexClient:
     def __init__(
         self,
         *,
-        config: PlexClientConfig,
+        url: str,
+        token: str,
+        user: str | None = None,
         section_filter: Sequence[str] | None = None,
         genre_filter: Sequence[str] | None = None,
     ) -> None:
         """Initialize client wrapper with optional section and genre filters.
 
         Args:
-            config (PlexClientConfig): Configuration for connecting to Plex.
+            url (str): The base URL of the Plex server.
+            token (str): The Plex authentication token.
+            user (str | None): The Plex user to connect as (admin if None).
             section_filter (Sequence[str] | None): If provided, only include sections
                 whose titles are in this list (case-insensitive).
             genre_filter (Sequence[str] | None): If provided, only include items that
                 have at least one genre in this list.
         """
-        self._config = config
+        self._url = url
+        self._token = token
+        self._user = user
         self._section_filter = {value.lower() for value in section_filter or ()}
         self._genre_filter = tuple(genre_filter or ())
 
-        self._bundle: PlexClientBundle | None = None
         self._admin_client: PlexServer | None = None
         self._user_client: PlexServer | None = None
+        self._account: MyPlexAccount | None = None
+        self._user_id: int | None = None
+        self._display_name: str | None = None
+        self._is_admin: bool | None = None
 
         self._sections: list[MovieSection | ShowSection] = []
         self._continue_cache: dict[str, _FrozenCacheEntry] = {}
@@ -90,20 +77,137 @@ class PlexClient:
 
     async def initialize(self) -> None:
         """Establish the Plex session and prime provider caches."""
-        bundle = await asyncio.to_thread(self._create_client_bundle)
-        self._bundle = bundle
-        self._admin_client = bundle.admin_client
-        self._user_client = bundle.user_client
+        (
+            self._admin_client,
+            self._user_client,
+            self._account,
+            self._user_id,
+            self._display_name,
+            self._is_admin,
+        ) = await asyncio.to_thread(self._initialize_clients)
 
-        self._sections = await asyncio.to_thread(self._load_sections)
-        self._on_deck_window = await asyncio.to_thread(self._get_on_deck_window)
+        self._sections = await asyncio.to_thread(
+            lambda: [
+                raw
+                for raw in self._ensure_user_client().library.sections()
+                if isinstance(raw, (MovieSection, ShowSection))
+                and (
+                    not self._section_filter
+                    or raw.title.lower() in self._section_filter
+                )
+            ]
+        )
+
+        def _on_deck_window_sync() -> timedelta | None:
+            admin_client = self._admin_client
+            if admin_client is None:
+                return None
+            try:
+                window_value = admin_client.settings.get("onDeckWindow").value
+            except Exception:
+                return None
+            try:
+                return timedelta(weeks=float(window_value))
+            except (TypeError, ValueError):
+                return None
+
+        self._on_deck_window = await asyncio.to_thread(_on_deck_window_sync)
         self.clear_cache()
+
+    def _initialize_clients(
+        self,
+    ) -> tuple[PlexServer, PlexServer, MyPlexAccount, int, str, bool]:
+        session: SelectiveVerifySession | None = None
+        parsed = urlparse(self._url)
+        if parsed.scheme == "https":
+            session = SelectiveVerifySession(whitelist=[parsed.hostname])
+
+        admin_client = PlexServer(
+            self._url,
+            self._token,
+            session=session,
+        )
+        account = admin_client.myPlexAccount()
+
+        requested_user = (self._user or "").strip() or None
+        target_user: MyPlexUser | None = None
+        is_admin = True
+
+        if requested_user:
+            requested_lower = requested_user.lower()
+            matches_account = any(
+                candidate and candidate.lower() == requested_lower
+                for candidate in (account.username, account.email, account.title)
+            )
+            if not matches_account:
+                target = requested_user.lower()
+                for user in account.users():
+                    if target in (
+                        (user.username or "").lower(),
+                        (user.email or "").lower(),
+                        (user.title or "").lower(),
+                    ):
+                        target_user = user
+                        break
+                if target_user is None:
+                    raise ValueError(
+                        f"User '{requested_user}' not found in Plex account"
+                    )
+                is_admin = False
+
+        user_client = admin_client
+        if target_user is not None:
+            login = target_user.username or target_user.email or target_user.title
+            if not login:
+                raise ValueError(
+                    "Unable to switch Plex user: no username, email, or title available"
+                )
+            try:
+                user_client = admin_client.switchUser(login)
+            except Exception as exc:
+                raise ValueError(f"Failed to switch to Plex user '{login}'") from exc
+
+        if target_user is not None:
+            display_candidates = (
+                target_user.username,
+                target_user.email,
+                target_user.title,
+                requested_user,
+                "Plex User",
+            )
+        else:
+            display_candidates = (
+                account.username,
+                account.email,
+                account.title,
+                requested_user,
+                "Plex Admin",
+            )
+
+        display_name = next(
+            (candidate for candidate in display_candidates if candidate),
+            "Plex User",
+        )
+
+        user_id = target_user.id if target_user else account.id
+
+        return (
+            admin_client,
+            user_client,
+            account,
+            user_id,
+            display_name,
+            is_admin,
+        )
 
     async def close(self) -> None:
         """Release any held resources."""
-        self._bundle = None
         self._admin_client = None
         self._user_client = None
+        self._account = None
+        self._user_id = None
+        self._display_name = None
+        self._is_admin = None
         self._sections.clear()
         self.clear_cache()
 
@@ -112,11 +216,38 @@ class PlexClient:
         self._continue_cache.clear()
         self._ordering_cache.clear()
 
-    def bundle(self) -> PlexClientBundle:
-        """Return the active client bundle."""
-        if self._bundle is None:
+    @property
+    def is_admin(self) -> bool:
+        """Return whether the connected Plex user is an admin."""
+        if self._is_admin is None:
             raise RuntimeError("Plex client has not been initialized")
-        return self._bundle
+        return self._is_admin
+
+    @property
+    def user_id(self) -> int:
+        """Return the numeric Plex user id for the connected user."""
+        if self._user_id is None:
+            raise RuntimeError("Plex client has not been initialized")
+        return self._user_id
+
+    @property
+    def display_name(self) -> str:
+        """Return the display name for the connected user."""
+        if self._display_name is None:
+            raise RuntimeError("Plex client has not been initialized")
+        return self._display_name
+
+    @property
+    def account(self) -> MyPlexAccount:
+        """Return the active Plex account."""
+        if self._account is None:
+            raise RuntimeError("Plex client has not been initialized")
+        return self._account
+
+    @property
+    def user_client(self) -> PlexServer:
+        """Return the active Plex user client."""
+        return self._ensure_user_client()
 
     def sections(self) -> Sequence[MovieSection | ShowSection]:
         """Return the cached list of Plex library sections."""
@@ -137,10 +268,69 @@ class PlexClient:
             filters: list[dict] = []
 
             if min_last_modified is not None:
-                filters.append(self._build_modified_filter(section, min_last_modified))
+                reference_dt = min_last_modified.astimezone()
+                if reference_dt is None:
+                    reference_dt = datetime.now(tz=UTC)
+
+                if section.type == "movie":
+                    filters.append(
+                        {
+                            "or": [
+                                {"lastViewedAt>>=": reference_dt},
+                                {"lastRatedAt>>=": reference_dt},
+                                {"addedAt>>=": reference_dt},
+                                {"updatedAt>>=": reference_dt},
+                            ]
+                        }
+                    )
+                else:
+                    filters.append(
+                        {
+                            "or": [
+                                {"show.lastViewedAt>>=": reference_dt},
+                                {"show.lastRatedAt>>=": reference_dt},
+                                {"show.addedAt>>=": reference_dt},
+                                {"show.updatedAt>>=": reference_dt},
+                                {"season.lastViewedAt>>=": reference_dt},
+                                {"season.lastRatedAt>>=": reference_dt},
+                                {"season.addedAt>>=": reference_dt},
+                                {"season.updatedAt>>=": reference_dt},
+                                {"episode.lastViewedAt>>=": reference_dt},
+                                {"episode.lastRatedAt>>=": reference_dt},
+                                {"episode.addedAt>>=": reference_dt},
+                                {"episode.updatedAt>>=": reference_dt},
+                            ]
+                        }
+                    )
 
             if require_watched:
-                filters.append(self._build_watched_filter(section))
+                epoch = datetime.fromtimestamp(0, tz=UTC)
+                if section.type == "movie":
+                    filters.append(
+                        {
+                            "or": [
+                                {"viewCount>>": 0},
+                                {"lastViewedAt>>": epoch},
+                                {"lastRatedAt>>": epoch},
+                            ]
+                        }
+                    )
+                else:
+                    filters.append(
+                        {
+                            "or": [
+                                {"show.viewCount>>": 0},
+                                {"show.lastViewedAt>>": epoch},
+                                {"show.lastRatedAt>>": epoch},
+                                {"season.viewCount>>": 0},
+                                {"season.lastViewedAt>>": epoch},
+                                {"season.lastRatedAt>>": epoch},
+                                {"episode.viewCount>>": 0},
+                                {"episode.lastViewedAt>>": epoch},
+                                {"episode.lastRatedAt>>": epoch},
+                            ]
+                        }
+                    )
 
             if self._genre_filter:
                 filters.append({"genre": self._genre_filter})
@@ -183,7 +373,19 @@ class PlexClient:
         cache_entry = self._continue_cache.get(str(section.key))
         now = monotonic()
         if cache_entry is None or cache_entry.expires_at <= now:
-            cache_entry = self._refresh_continue_cache(section)
+            rating_keys: set[str] = set()
+            try:
+                for continue_item in section.continueWatching():
+                    if continue_item.ratingKey is not None:
+                        rating_keys.add(str(continue_item.ratingKey))
+            except Exception:
+                rating_keys.clear()
+
+            cache_entry = _FrozenCacheEntry(
+                keys=frozenset(rating_keys),
+                expires_at=monotonic() + 300,
+            )
+            self._continue_cache[str(section.key)] = cache_entry
         return str(item.ratingKey) in cache_entry.keys
 
     async def fetch_history(self, item: Video) -> Sequence[tuple[str, datetime]]:
@@ -193,7 +395,7 @@ class PlexClient:
             history_objects = await asyncio.to_thread(
                 admin_client.history,
                 ratingKey=item.ratingKey,
-                accountID=1 if self.bundle().is_admin else self.bundle().user_id,
+                accountID=1 if self.is_admin else self.user_id,
                 librarySectionID=item.librarySectionID,
             )
         except Exception:
@@ -208,13 +410,28 @@ class PlexClient:
 
     def is_on_watchlist(self, item: Video) -> bool:
         """Determine whether the given item appears in the user's watchlist."""
-        if not self.bundle().is_admin:
+        if not self.is_admin:
             return False
 
         now = monotonic()
         cache_entry = self._watchlist_cache
         if cache_entry is None or cache_entry.expires_at <= now:
-            cache_entry = self._refresh_watchlist_cache()
+            try:
+                # Rating keys won't work here because watchlist items can exist outside
+                # of the user's server. We'll use GUIDs as as substitute.
+                keys = {
+                    str(watch_item.guid)
+                    for watch_item in self.account.watchlist()
+                    if watch_item.guid is not None
+                }
+            except Exception:
+                keys = set()
+
+            cache_entry = _FrozenCacheEntry(
+                keys=frozenset(keys),
+                expires_at=monotonic() + 300,
+            )
+            self._watchlist_cache = cache_entry
 
         return item.guid is not None and item.guid in cache_entry.keys
 
@@ -253,132 +470,6 @@ class PlexClient:
         self._ordering_cache[show.librarySectionID] = resolved
         return resolved
 
-    def _create_client_bundle(self) -> PlexClientBundle:
-        return _default_bundle(self._config)
-
-    def _load_sections(self) -> list[MovieSection | ShowSection]:
-        user_client = self._ensure_user_client()
-        sections: list[MovieSection | ShowSection] = []
-
-        for raw in user_client.library.sections():
-            if not isinstance(raw, (MovieSection, ShowSection)):
-                continue
-            if self._section_filter and raw.title.lower() not in self._section_filter:
-                continue
-            sections.append(raw)
-        return sections
-
-    def _get_on_deck_window(self) -> timedelta | None:
-        admin_client = self._admin_client
-        if admin_client is None:
-            return None
-        try:
-            window_value = admin_client.settings.get("onDeckWindow").value
-        except Exception:
-            return None
-        try:
-            return timedelta(weeks=float(window_value))
-        except (TypeError, ValueError):
-            return None
-
-    def _build_modified_filter(
-        self, section: LibrarySection, reference: datetime
-    ) -> dict:
-        reference_dt = reference.astimezone()
-        if reference_dt is None:
-            reference_dt = datetime.now(tz=UTC)
-
-        if section.type == "movie":
-            return {
-                "or": [
-                    {"lastViewedAt>>=": reference_dt},
-                    {"lastRatedAt>>=": reference_dt},
-                    {"addedAt>>=": reference_dt},
-                    {"updatedAt>>=": reference_dt},
-                ]
-            }
-
-        return {
-            "or": [
-                {"show.lastViewedAt>>=": reference_dt},
-                {"show.lastRatedAt>>=": reference_dt},
-                {"show.addedAt>>=": reference_dt},
-                {"show.updatedAt>>=": reference_dt},
-                {"season.lastViewedAt>>=": reference_dt},
-                {"season.lastRatedAt>>=": reference_dt},
-                {"season.addedAt>>=": reference_dt},
-                {"season.updatedAt>>=": reference_dt},
-                {"episode.lastViewedAt>>=": reference_dt},
-                {"episode.lastRatedAt>>=": reference_dt},
-                {"episode.addedAt>>=": reference_dt},
-                {"episode.updatedAt>>=": reference_dt},
-            ]
-        }
-
-    def _build_watched_filter(self, section: LibrarySection) -> dict:
-        epoch = datetime.fromtimestamp(0, tz=UTC)
-        if section.type == "movie":
-            return {
-                "or": [
-                    {"viewCount>>": 0},
-                    {"lastViewedAt>>": epoch},
-                    {"lastRatedAt>>": epoch},
-                ]
-            }
-
-        return {
-            "or": [
-                {"show.viewCount>>": 0},
-                {"show.lastViewedAt>>": epoch},
-                {"show.lastRatedAt>>": epoch},
-                {"season.viewCount>>": 0},
-                {"season.lastViewedAt>>": epoch},
-                {"season.lastRatedAt>>": epoch},
-                {"episode.viewCount>>": 0},
-                {"episode.lastViewedAt>>": epoch},
-                {"episode.lastRatedAt>>": epoch},
-            ]
-        }
-
-    def _refresh_continue_cache(self, section: LibrarySection) -> _FrozenCacheEntry:
-        """Refresh the continue-watching cache for the given section."""
-        rating_keys: set[str] = set()
-        try:
-            for item in section.continueWatching():
-                if item.ratingKey is not None:
-                    rating_keys.add(str(item.ratingKey))
-        except Exception:
-            rating_keys.clear()
-
-        entry = _FrozenCacheEntry(
-            keys=frozenset(rating_keys),
-            expires_at=monotonic() + 300,
-        )
-        self._continue_cache[str(section.key)] = entry
-        return entry
-
-    def _refresh_watchlist_cache(self) -> _FrozenCacheEntry:
-        """Refresh the watchlist cache for the given section."""
-        if not self.bundle().is_admin:
-            return _FrozenCacheEntry(keys=frozenset(), expires_at=monotonic() + 300)
-        try:
-            # Rating keys won't work here because watchlist items can exist outside of
-            # the user's server. We'll use GUIDs as as substitute.
-            keys = {
-                str(item.guid)
-                for item in self.bundle().account.watchlist()
-                if item.guid is not None
-            }
-        except Exception:
-            keys = set()
-
-        entry = _FrozenCacheEntry(
-            keys=frozenset(keys),
-            expires_at=monotonic() + 300,
-        )
-        self._watchlist_cache = entry
-        return entry
-
     def _ensure_user_client(self) -> PlexServer:
         """Ensure the user Plex client is available."""
         if self._user_client is None:
@@ -390,120 +481,3 @@ class PlexClient:
         if self._admin_client is None:
             raise RuntimeError("Plex client has not been initialized")
         return self._admin_client
-
-
-def _default_bundle(config: PlexClientConfig) -> PlexClientBundle:
-    """TODO: temporary function while staging client refactor."""
-    session = _build_session(config.url)
-    admin_client = _create_admin_client(config, session=session)
-    account = admin_client.myPlexAccount()
-
-    requested_user = (config.user or "").strip() or None
-    target_user: MyPlexUser | None = None
-    is_admin = True
-
-    if requested_user and not _matches_account(requested_user, account):
-        target_user = _match_plex_user(requested_user, account.users())
-        is_admin = False
-    elif requested_user:
-        is_admin = True
-
-    user_client = _create_user_client(
-        admin_client=admin_client,
-        account=account,
-        target_user=target_user,
-    )
-
-    user_id = target_user.id if target_user else account.id
-    display_name = _resolve_display_name(account, target_user, requested_user)
-
-    return PlexClientBundle(
-        admin_client=admin_client,
-        user_client=user_client,
-        account=account,
-        target_user=target_user,
-        user_id=user_id,
-        display_name=display_name,
-        is_admin=is_admin,
-    )
-
-
-def _build_session(url: str) -> SelectiveVerifySession | None:
-    parsed = urlparse(url)
-    if parsed.scheme != "https":
-        return None
-    return SelectiveVerifySession(whitelist=[parsed.hostname])
-
-
-def _create_admin_client(
-    config: PlexClientConfig, *, session: SelectiveVerifySession | None
-) -> PlexServer:
-    return PlexServer(config.url, config.token, session=session)
-
-
-def _matches_account(requested: str, account: MyPlexAccount) -> bool:
-    requested_lower = requested.lower()
-    for candidate in (account.username, account.email, account.title):
-        if candidate and candidate.lower() == requested_lower:
-            return True
-    return False
-
-
-def _match_plex_user(plex_user: str, users: Sequence[MyPlexUser]) -> MyPlexUser:
-    target = plex_user.lower()
-    for user in users:
-        if target in (
-            (user.username or "").lower(),
-            (user.email or "").lower(),
-            (user.title or "").lower(),
-        ):
-            return user
-    raise ValueError(f"User '{plex_user}' not found in Plex account")
-
-
-def _create_user_client(
-    *,
-    admin_client: PlexServer,
-    account: MyPlexAccount,
-    target_user: MyPlexUser | None,
-) -> PlexServer:
-    if target_user is None:
-        return admin_client
-
-    login = target_user.username or target_user.email or target_user.title
-    if not login:
-        raise ValueError(
-            "Unable to switch Plex user: no username, email, or title available"
-        )
-    try:
-        return admin_client.switchUser(login)
-    except Exception as exc:
-        raise ValueError(f"Failed to switch to Plex user '{login}'") from exc
-
-
-def _resolve_display_name(
-    account: MyPlexAccount,
-    target_user: MyPlexUser | None,
-    requested: str | None,
-) -> str:
-    if target_user is not None:
-        candidates = (
-            target_user.username,
-            target_user.email,
-            target_user.title,
-            requested,
-            "Plex User",
-        )
-    else:
-        candidates = (
-            account.username,
-            account.email,
-            account.title,
-            requested,
-            "Plex Admin",
-        )
-
-    for candidate in candidates:
-        if candidate:
-            return candidate
-    return "Plex User"

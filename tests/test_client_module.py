@@ -18,59 +18,69 @@ def _account_stub(**kwargs: Any) -> client_module.MyPlexAccount:
 
 
 @pytest.fixture()
-def plex_client_config() -> client_module.PlexClientConfig:
-    """Provide a basic PlexClientConfig for tests."""
-    return client_module.PlexClientConfig(
-        url="https://plex.example", token="token", user="demo"
-    )
-
-
-@pytest.fixture()
-def plex_client(
-    plex_client_config: client_module.PlexClientConfig,
-) -> client_module.PlexClient:
+def plex_client() -> client_module.PlexClient:
     """Provide a PlexClient instance for tests."""
-    return client_module.PlexClient(config=plex_client_config)
+    return client_module.PlexClient(
+        url="https://plex.example",
+        token="token",
+        user="demo",
+    )
 
 
 @pytest.mark.asyncio
-async def test_initialize_populates_bundle_and_sections(
+async def test_initialize_populates_state_and_sections(
     monkeypatch: pytest.MonkeyPatch, plex_client: client_module.PlexClient
 ):
-    """Test that the Plex client initializes with the correct bundle and sections."""
-    bundle = client_module.PlexClientBundle(
-        admin_client=_server_stub(),
-        user_client=_server_stub(),
-        account=_account_stub(id=1, watchlist=lambda: []),
-        target_user=None,
-        user_id=1,
-        display_name="Demo",
-        is_admin=True,
+    """Test that the Plex client initializes with the correct state and sections."""
+
+    class StubSettings:
+        def get(self, _):
+            return SimpleNamespace(value="2")
+
+    class StubMovieSection:
+        def __init__(self, title: str) -> None:
+            self.title = title
+            self.type = "movie"
+            self.key = "m"
+
+    class StubLibrary:
+        def sections(self):
+            return [StubMovieSection("Movies")]
+
+    account = _account_stub(
+        id=1,
+        username="demo",
+        email="demo@example",
+        title="Demo",
+        users=lambda: [],
     )
-    sections = ["Movies", "Shows"]
+
+    class StubPlexServer:
+        def __init__(self, *_args, **_kwargs) -> None:
+            self.settings = StubSettings()
+            self.library = StubLibrary()
+
+        def myPlexAccount(self):
+            return account
+
+    monkeypatch.setattr(client_module, "PlexServer", StubPlexServer)
+    monkeypatch.setattr(client_module, "MovieSection", StubMovieSection)
+    monkeypatch.setattr(client_module, "ShowSection", StubMovieSection)
+    monkeypatch.setattr(client_module, "SelectiveVerifySession", lambda **_: None)
+
     plex_client._continue_cache["stale"] = client_module._FrozenCacheEntry(
         keys=frozenset({"old"}),
         expires_at=0,
     )
     plex_client._ordering_cache[1] = "tmdb"
 
-    monkeypatch.setattr(
-        client_module.PlexClient, "_create_client_bundle", lambda self: bundle
-    )
-    monkeypatch.setattr(
-        client_module.PlexClient, "_load_sections", lambda self: sections
-    )
-    monkeypatch.setattr(
-        client_module.PlexClient,
-        "_get_on_deck_window",
-        lambda self: timedelta(days=7),
-    )
-
     await plex_client.initialize()
 
-    assert plex_client.bundle() is bundle
-    assert plex_client.sections() == tuple(sections)
-    assert plex_client.on_deck_window == timedelta(days=7)
+    assert plex_client.user_id == 1
+    assert plex_client.display_name == "demo"
+    assert plex_client.is_admin is True
+    assert plex_client.sections()
+    assert plex_client.on_deck_window == timedelta(weeks=2)
     assert not plex_client._continue_cache
     assert not plex_client._ordering_cache
 
@@ -96,6 +106,7 @@ async def test_list_section_items_applies_filters(
 
     class DummySection:
         key = "sec"
+        type = "movie"
 
         def __init__(self) -> None:
             self.calls: list[dict[str, Any]] = []
@@ -103,13 +114,6 @@ async def test_list_section_items_applies_filters(
         def search(self, **kwargs: Any):
             self.calls.append(kwargs)
             return [DummyMovie("1"), DummyShow("2"), object()]
-
-    monkeypatch.setattr(
-        client_module.PlexClient, "_build_modified_filter", lambda self, s, _: {"m": 1}
-    )
-    monkeypatch.setattr(
-        client_module.PlexClient, "_build_watched_filter", lambda self, s: {"w": 1}
-    )
 
     plex_client._genre_filter = ("Drama",)
     section = DummySection()
@@ -122,9 +126,11 @@ async def test_list_section_items_applies_filters(
     )
 
     assert len(result) == 1 and isinstance(result[0], DummyMovie)
-    assert section.calls and section.calls[0]["filters"]["and"][-1] == {
-        "genre": ("Drama",)
-    }
+    assert section.calls
+    filters = section.calls[0]["filters"]["and"]
+    assert any("lastViewedAt" in str(entry) for entry in filters)
+    assert any("viewCount" in str(entry) for entry in filters)
+    assert filters[-1] == {"genre": ("Drama",)}
 
 
 def test_is_on_continue_watching_caches_results(
@@ -156,7 +162,7 @@ def test_is_on_continue_watching_caches_results(
 async def test_fetch_history_respects_bundle(
     monkeypatch: pytest.MonkeyPatch, plex_client: client_module.PlexClient
 ):
-    """Test that the fetch_history method respects the client bundle."""
+    """Test that the fetch_history method respects the client user id."""
     records = [SimpleNamespace(ratingKey=7, viewedAt=datetime.now(tz=UTC))]
     observed: dict[str, Any] = {}
 
@@ -165,15 +171,8 @@ async def test_fetch_history_respects_bundle(
         return records
 
     plex_client._admin_client = _server_stub(history=fake_history)
-    plex_client._bundle = client_module.PlexClientBundle(
-        admin_client=_server_stub(),
-        user_client=_server_stub(),
-        account=_account_stub(id=1, watchlist=lambda: []),
-        target_user=None,
-        user_id=99,
-        display_name="Demo",
-        is_admin=False,
-    )
+    plex_client._is_admin = False
+    plex_client._user_id = 99
 
     video = cast(client_module.Video, SimpleNamespace(ratingKey=5, librarySectionID=9))
     history = await plex_client.fetch_history(video)
@@ -185,15 +184,8 @@ def test_is_on_watchlist_only_admin(
     monkeypatch: pytest.MonkeyPatch, plex_client: client_module.PlexClient
 ):
     """Test that is_on_watchlist only works for admin users."""
-    plex_client._bundle = client_module.PlexClientBundle(
-        admin_client=_server_stub(),
-        user_client=_server_stub(),
-        account=_account_stub(id=1, watchlist=lambda: []),
-        target_user=None,
-        user_id=1,
-        display_name="Demo",
-        is_admin=False,
-    )
+    plex_client._is_admin = False
+    plex_client._account = _account_stub(id=1, watchlist=lambda: [])
     assert not plex_client.is_on_watchlist(
         cast(client_module.Video, SimpleNamespace(guid="guid"))
     )
@@ -204,15 +196,8 @@ def test_is_on_watchlist_only_admin(
         calls["count"] += 1
         return [SimpleNamespace(guid="guid"), SimpleNamespace(guid=None)]
 
-    plex_client._bundle = client_module.PlexClientBundle(
-        admin_client=_server_stub(),
-        user_client=_server_stub(),
-        account=_account_stub(id=1, watchlist=fake_watchlist),
-        target_user=None,
-        user_id=1,
-        display_name="Demo",
-        is_admin=True,
-    )
+    plex_client._is_admin = True
+    plex_client._account = _account_stub(id=1, watchlist=fake_watchlist)
     monkeypatch.setattr(client_module, "monotonic", lambda: 50.0)
 
     assert plex_client.is_on_watchlist(
@@ -236,165 +221,6 @@ def test_get_ordering_and_filters(plex_client: client_module.PlexClient):
         SimpleNamespace(showOrdering="", section=lambda: section, librarySectionID=5),
     )
     assert plex_client.get_ordering(show) == "tvdb"
-
-    movie_section = cast(client_module.MovieSection, SimpleNamespace(type="movie"))
-    show_section = cast(client_module.ShowSection, SimpleNamespace(type="show"))
-    reference = datetime(2024, 1, 1)
-
-    movie_filter = plex_client._build_modified_filter(movie_section, reference)
-    show_filter = plex_client._build_modified_filter(show_section, reference)
-    assert "lastViewedAt" in str(movie_filter)
-    assert "show.lastViewedAt" in str(show_filter)
-
-    watched_movie = plex_client._build_watched_filter(movie_section)
-    watched_show = plex_client._build_watched_filter(show_section)
-    assert "viewCount" in str(watched_movie)
-    assert "show.viewCount" in str(watched_show)
-
-
-def test_build_session_and_load_sections(
-    monkeypatch: pytest.MonkeyPatch, plex_client: client_module.PlexClient
-):
-    """Test session building and section loading helpers."""
-    created_session = {}
-
-    class DummySession:
-        def __init__(self, whitelist: list[str]) -> None:
-            created_session["whitelist"] = whitelist
-
-    monkeypatch.setattr(client_module, "SelectiveVerifySession", DummySession)
-    assert client_module._build_session("https://plex.example") is not None
-    assert created_session["whitelist"] == ["plex.example"]
-    assert client_module._build_session("http://plex.example") is None
-
-    class StubMovieSection:
-        def __init__(self, title: str) -> None:
-            self.title = title
-            self.type = "movie"
-            self.key = title
-
-    class StubShowSection(StubMovieSection):
-        pass
-
-    class OtherSection:
-        title = "Other"
-
-    monkeypatch.setattr(client_module, "MovieSection", StubMovieSection)
-    monkeypatch.setattr(client_module, "ShowSection", StubShowSection)
-
-    plex_client._section_filter = {"allowed"}
-    plex_client._user_client = cast(
-        client_module.PlexServer,
-        SimpleNamespace(
-            library=SimpleNamespace(
-                sections=lambda: [
-                    StubMovieSection("Allowed"),
-                    StubMovieSection("Other"),
-                    OtherSection(),
-                ]
-            )
-        ),
-    )
-
-    sections = plex_client._load_sections()
-    assert len(sections) == 1 and sections[0].title == "Allowed"
-
-
-def test_default_bundle_switches_user(
-    monkeypatch: pytest.MonkeyPatch, plex_client_config: client_module.PlexClientConfig
-):
-    """Test that the default bundle switches to the requested user."""
-    plex_client_config.user = "friend"
-    account = cast(
-        client_module.MyPlexAccount,
-        SimpleNamespace(
-            username="demo",
-            email="demo@example",
-            title="Demo",
-            id=1,
-            users=lambda: [SimpleNamespace(username="friend", id=2)],
-        ),
-    )
-    admin_client = cast(
-        client_module.PlexServer,
-        SimpleNamespace(myPlexAccount=lambda: account),
-    )
-
-    monkeypatch.setattr(client_module, "_build_session", lambda url: None)
-    monkeypatch.setattr(
-        client_module,
-        "_create_admin_client",
-        lambda config, session=None: admin_client,
-    )
-    target_user = cast(
-        client_module.MyPlexUser,
-        SimpleNamespace(username="friend", id=2),
-    )
-    monkeypatch.setattr(
-        client_module,
-        "_match_plex_user",
-        lambda name, users: target_user,
-    )
-    monkeypatch.setattr(
-        client_module,
-        "_create_user_client",
-        lambda **_: SimpleNamespace(),
-    )
-    monkeypatch.setattr(
-        client_module,
-        "_resolve_display_name",
-        lambda account, target, requested: "Friend",
-    )
-
-    bundle = client_module._default_bundle(plex_client_config)
-    assert bundle.target_user is target_user
-    assert bundle.is_admin is False
-    assert bundle.display_name == "Friend"
-
-
-def test_refresh_helpers_clear_errors(
-    monkeypatch: pytest.MonkeyPatch, plex_client: client_module.PlexClient
-):
-    """Test that the refresh helpers handle errors and clear caches."""
-
-    def broken_continue():
-        raise RuntimeError("boom")
-
-    section = cast(
-        client_module.LibrarySection,
-        SimpleNamespace(key="sec", continueWatching=broken_continue),
-    )
-    entry = plex_client._refresh_continue_cache(section)
-    assert entry.keys == frozenset()
-
-    plex_client._bundle = client_module.PlexClientBundle(
-        admin_client=_server_stub(),
-        user_client=_server_stub(),
-        account=_account_stub(id=1, watchlist=lambda: []),
-        target_user=None,
-        user_id=1,
-        display_name="Demo",
-        is_admin=False,
-    )
-    assert plex_client._refresh_watchlist_cache().keys == frozenset()
-
-    plex_client._bundle = client_module.PlexClientBundle(
-        admin_client=_server_stub(),
-        user_client=_server_stub(),
-        account=_account_stub(
-            id=1,
-            watchlist=lambda: [
-                SimpleNamespace(guid="guid"),
-                SimpleNamespace(guid=None),
-            ],
-        ),
-        target_user=None,
-        user_id=1,
-        display_name="Demo",
-        is_admin=True,
-    )
-    entry = plex_client._refresh_watchlist_cache()
-    assert entry.keys == frozenset({"guid"})
 
     plex_client._continue_cache = {
         "a": client_module._FrozenCacheEntry(keys=frozenset({"1"}), expires_at=0)
