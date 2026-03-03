@@ -381,13 +381,42 @@ async def test_parse_webhook_filters_user(
     async def fake_from_request(_request):
         return StubWebhook(account_id=1, rating_key="key", event="media.scrobble")
 
-    monkeypatch.setattr(library_module.PlexWebhook, "from_request", fake_from_request)
+    monkeypatch.setattr(library_module.WebhookParser, "from_request", fake_from_request)
     should_sync, keys = await provider.parse_webhook(cast(Request, SimpleNamespace()))
     assert should_sync is True and keys == ("key",)
 
     async def missing_account(_request):
         return StubWebhook(account_id=None, rating_key=None, event="media.scrobble")
 
-    monkeypatch.setattr(library_module.PlexWebhook, "from_request", missing_account)
+    monkeypatch.setattr(library_module.WebhookParser, "from_request", missing_account)
     with pytest.raises(ValueError):
         await provider.parse_webhook(cast(Request, SimpleNamespace()))
+
+
+@pytest.mark.asyncio
+async def test_parse_webhook_uses_normalized_event_type(
+    monkeypatch: pytest.MonkeyPatch,
+    initialized_provider: tuple[
+        library_module.PlexLibraryProvider,
+        FakePlexClient,
+        StubMovie,
+        StubShow,
+        StubEpisode,
+    ],
+):
+    """Parsing webhooks uses event_type instead of raw event string."""
+    provider, _, *_ = initialized_provider
+
+    class StubWebhook:
+        def __init__(self):
+            self.account_id = 1
+            self.top_level_rating_key = "key"
+            self.event = "created"
+            self.event_type = library_module.PlexWebhookEventType.MEDIA_ADDED
+
+    async def fake_from_request(_request):
+        return StubWebhook()
+
+    monkeypatch.setattr(library_module.WebhookParser, "from_request", fake_from_request)
+    should_sync, keys = await provider.parse_webhook(cast(Request, SimpleNamespace()))
+    assert should_sync is True and keys == ("key",)
