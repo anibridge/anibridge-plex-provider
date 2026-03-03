@@ -27,7 +27,7 @@ from anibridge.library.base import MappingDescriptor
 
 from anibridge.providers.library.plex.client import PlexClient
 from anibridge.providers.library.plex.community import PlexCommunityClient
-from anibridge.providers.library.plex.webhook import PlexWebhook, PlexWebhookEventType
+from anibridge.providers.library.plex.webhook import PlexWebhookEventType, WebhookParser
 
 if TYPE_CHECKING:
     from starlette.requests import Request
@@ -631,7 +631,7 @@ class PlexLibraryProvider(LibraryProvider):
 
     async def parse_webhook(self, request: Request) -> tuple[bool, Sequence[str]]:
         """Parse a Plex webhook request and determine affected media items."""
-        payload = await PlexWebhook.from_request(request)
+        payload = await WebhookParser.from_request(request)
 
         if not payload.account_id:
             self.log.warning("Webhook: No account ID found in payload")
@@ -641,7 +641,7 @@ class PlexLibraryProvider(LibraryProvider):
             raise ValueError("No rating key found in webhook payload")
 
         if (
-            payload.event
+            payload.event_type
             in (
                 PlexWebhookEventType.MEDIA_ADDED,
                 PlexWebhookEventType.RATE,
