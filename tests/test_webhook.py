@@ -115,7 +115,7 @@ async def test_from_request_supports_explicit_tautulli_format_hint():
         headers={"content-type": "application/json"},
         query_params={"format": "tautulli"},
         json_payload={
-            "notify_action": "scrobble",
+            "action": "scrobble",
             "user_id": 9,
             "rating_key": "movie",
         },
