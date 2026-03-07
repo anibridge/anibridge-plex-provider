@@ -137,10 +137,7 @@ class TautulliWebhook(BaseModel):
         "on_deck": PlexWebhookEventType.ON_DECK,
     }
 
-    source: str | None = None
     action: str | None = None
-    event: str | None = None
-    notify_action: str | None = None
     user_id: int | str | None = None
     rating_key: str | None = None
     parent_rating_key: str | None = None
@@ -149,21 +146,10 @@ class TautulliWebhook(BaseModel):
     @cached_property
     def event_type(self) -> PlexWebhookEventType | None:
         """The webhook event type normalized to Plex event enum values."""
-        for candidate in (self.action, self.event, self.notify_action):
-            if not candidate:
-                continue
-            normalized = str(candidate).strip().lower()
-
-            try:
-                return PlexWebhookEventType(normalized)
-            except ValueError:
-                pass
-
-            mapped = self._TAUTULLI_ACTION_MAP.get(normalized)
-            if mapped is not None:
-                return mapped
-
-        return None
+        if not self.action:
+            return None
+        normalized = str(self.action).strip().lower()
+        return self._TAUTULLI_ACTION_MAP.get(normalized)
 
     @cached_property
     def account_id(self) -> int | None:
