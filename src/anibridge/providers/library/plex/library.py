@@ -24,7 +24,6 @@ from anibridge.library import (
     MediaKind,
 )
 from anibridge.library.base import MappingDescriptor
-
 from anibridge.providers.library.plex.client import PlexClient
 from anibridge.providers.library.plex.community import PlexCommunityClient
 from anibridge.providers.library.plex.webhook import PlexWebhookEventType, WebhookParser
@@ -646,6 +645,7 @@ class PlexLibraryProvider(LibraryProvider):
                 PlexWebhookEventType.MEDIA_ADDED,
                 PlexWebhookEventType.RATE,
                 PlexWebhookEventType.SCROBBLE,
+                PlexWebhookEventType.STOP,
             )
             and self._user
             and self._user.key == str(payload.account_id)
