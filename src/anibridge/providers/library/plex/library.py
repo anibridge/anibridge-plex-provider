@@ -24,6 +24,7 @@ from anibridge.library import (
     MediaKind,
 )
 from anibridge.library.base import MappingDescriptor
+
 from anibridge.providers.library.plex.client import PlexClient
 from anibridge.providers.library.plex.community import PlexCommunityClient
 from anibridge.providers.library.plex.webhook import PlexWebhookEventType, WebhookParser
