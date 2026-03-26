@@ -141,15 +141,13 @@ class FakePlexClient:
         self._user_client = _server_stub(
             url=lambda path, includeToken=True: f"https://plex{path}",
         )
-        self._account = _account_stub(id=1, watchlist=lambda: [])
-        self._is_admin = True
+        self._account = _account_stub(id=1, authToken="token", watchlist=lambda: [])
         self._user_id = 1
         self._display_name = "Demo"
         self._helper = client_module.PlexClient(
             logger=cast(ProviderLogger, getLogger("test.library.client")),
             url="https://plex.example",
             token="token",
-            user="demo",
         )
         self.initialized = False
         self.closed = False
@@ -164,10 +162,6 @@ class FakePlexClient:
         self.closed = True
 
     @property
-    def is_admin(self) -> bool:
-        return self._is_admin
-
-    @property
     def user_id(self) -> int:
         return self._user_id
 
@@ -178,6 +172,10 @@ class FakePlexClient:
     @property
     def user_client(self):
         return self._user_client
+
+    @property
+    def account(self):
+        return self._account
 
     def sections(self):
         """Return the library sections."""
@@ -254,8 +252,8 @@ def library_setup(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(library_module, "PlexClient", lambda **_: fake_client)
 
     provider = library_module.PlexLibraryProvider(
-        logger=getLogger("test.library.provider"),
-        config={"url": "https://plex.example", "token": "token", "user": "demo"},
+        logger=cast(ProviderLogger, getLogger("test.library.provider")),
+        config={"url": "https://plex.example", "token": "token"},
     )
     return provider, fake_client, movie, show, episode
 
@@ -329,9 +327,10 @@ async def test_get_review_checks_admin(
         StubEpisode,
     ],
 ):
-    """Get review returns None for non-admin users."""
+    """Get review returns None when rating prerequisites are missing."""
     provider, _fake_client, movie, *_ = initialized_provider
-    provider._is_admin_user = False
+    movie.userRating = None
+    movie.lastRatedAt = None
     result = await provider.get_review(cast(library_module.plexapi_video.Video, movie))
     assert result is None
 
@@ -489,7 +488,6 @@ async def test_get_review_handles_exception(
             raise RuntimeError("boom")
 
     provider._community_client = cast(Any, FailingCommunityClient())
-    provider._is_admin_user = True
     assert (
         await provider.get_review(cast(library_module.plexapi_video.Video, movie))
         is None

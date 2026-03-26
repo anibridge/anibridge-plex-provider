@@ -19,6 +19,20 @@ def _account_stub(**kwargs: Any) -> client_module.MyPlexAccount:
     return cast(client_module.MyPlexAccount, SimpleNamespace(**kwargs))
 
 
+def _session_stub(machine_id: str = "machine-1") -> Any:
+    class StubResponse:
+        def __init__(self) -> None:
+            self.content = (
+                f'<MediaContainer machineIdentifier="{machine_id}"/>'.encode()
+            )
+
+    class StubSession:
+        def get(self, _url: str, timeout: int = 10):
+            return StubResponse()
+
+    return StubSession()
+
+
 @pytest.fixture()
 def plex_client() -> client_module.PlexClient:
     """Provide a PlexClient instance for tests."""
@@ -26,7 +40,6 @@ def plex_client() -> client_module.PlexClient:
         logger=cast(ProviderLogger, getLogger("test.client")),
         url="https://plex.example",
         token="token",
-        user="demo",
     )
 
 
@@ -56,20 +69,22 @@ async def test_initialize_populates_state_and_sections(
         email="demo@example",
         title="Demo",
         users=lambda: [],
+        resource=lambda _machine_id: SimpleNamespace(accessToken="token"),
     )
 
     class StubPlexServer:
         def __init__(self, *_args, **_kwargs) -> None:
             self.settings = StubSettings()
             self.library = StubLibrary()
-
-        def myPlexAccount(self):
-            return account
+            self.token = _kwargs.get("token") if "token" in _kwargs else _args[1]
 
     monkeypatch.setattr(client_module, "PlexServer", StubPlexServer)
     monkeypatch.setattr(client_module, "MovieSection", StubMovieSection)
     monkeypatch.setattr(client_module, "ShowSection", StubMovieSection)
-    monkeypatch.setattr(client_module, "SelectiveVerifySession", lambda **_: None)
+    session = _session_stub("machine-1")
+    monkeypatch.setattr(client_module.requests, "Session", lambda: session)
+    monkeypatch.setattr(client_module, "SelectiveVerifySession", lambda **_: session)
+    monkeypatch.setattr(client_module, "MyPlexAccount", lambda **_: account)
 
     plex_client._continue_cache["stale"] = client_module._FrozenCacheEntry(
         keys=frozenset({"old"}),
@@ -81,11 +96,80 @@ async def test_initialize_populates_state_and_sections(
 
     assert plex_client.user_id == 1
     assert plex_client.display_name == "demo"
-    assert plex_client.is_admin is True
     assert plex_client.sections()
     assert plex_client.on_deck_window == timedelta(weeks=2)
     assert not plex_client._continue_cache
     assert not plex_client._ordering_cache
+
+
+def test_initialize_switches_home_user_when_requested(monkeypatch: pytest.MonkeyPatch):
+    """A requested home user should be resolved via MyPlexAccount switching."""
+
+    class StubSettings:
+        def get(self, _):
+            return SimpleNamespace(value="2")
+
+    class StubLibrary:
+        def sections(self):
+            return []
+
+    home_user = cast(
+        Any,
+        SimpleNamespace(
+            username="child",
+            email="child@example",
+            title="Child",
+        ),
+    )
+
+    switched_account = _account_stub(
+        id=2,
+        authToken="switched-token",
+        username="child",
+        email="child@example",
+        title="Child",
+        users=lambda: [],
+        resource=lambda _machine_id: SimpleNamespace(accessToken="switched-token"),
+    )
+
+    account = _account_stub(
+        id=1,
+        authToken="admin-token",
+        username="admin",
+        email="admin@example",
+        title="Admin",
+        users=lambda: [home_user],
+        switchHomeUser=lambda _user, pin=None: switched_account,
+    )
+
+    class StubPlexServer:
+        def __init__(self, *_args, **_kwargs) -> None:
+            self.settings = StubSettings()
+            self.library = StubLibrary()
+            self.token = _kwargs.get("token") if "token" in _kwargs else _args[1]
+
+        def myPlexAccount(self):
+            if self.token == "switched-token":
+                return switched_account
+            return account
+
+    monkeypatch.setattr(client_module, "PlexServer", StubPlexServer)
+    session = _session_stub("machine-1")
+    monkeypatch.setattr(client_module.requests, "Session", lambda: session)
+    monkeypatch.setattr(client_module, "SelectiveVerifySession", lambda **_: session)
+    monkeypatch.setattr(client_module, "MyPlexAccount", lambda **_: account)
+
+    client = client_module.PlexClient(
+        logger=cast(ProviderLogger, getLogger("test.client")),
+        url="https://plex.example",
+        token="token",
+        home_user="child",
+    )
+
+    user_client, _, user_id, display_name = client._initialize_clients()
+    assert user_client is not None
+    assert user_id == 2
+    assert display_name == "child"
 
 
 @pytest.mark.asyncio
@@ -173,8 +257,7 @@ async def test_fetch_history_respects_bundle(
         observed.update(kwargs)
         return records
 
-    plex_client._admin_client = _server_stub(history=fake_history)
-    plex_client._is_admin = False
+    plex_client._user_client = _server_stub(history=fake_history)
     plex_client._user_id = 99
 
     video = cast(client_module.Video, SimpleNamespace(ratingKey=5, librarySectionID=9))
@@ -183,15 +266,10 @@ async def test_fetch_history_respects_bundle(
     assert observed["accountID"] == 99
 
 
-def test_is_on_watchlist_only_admin(
+def test_is_on_watchlist_caches_results(
     monkeypatch: pytest.MonkeyPatch, plex_client: client_module.PlexClient
 ):
-    """Test that is_on_watchlist only works for admin users."""
-    plex_client._is_admin = False
-    plex_client._account = _account_stub(id=1, watchlist=lambda: [])
-    assert not plex_client.is_on_watchlist(
-        cast(client_module.Video, SimpleNamespace(guid="guid"))
-    )
+    """Watchlist lookups should cache account watchlist GUIDs."""
 
     calls = {"count": 0}
 
@@ -199,7 +277,6 @@ def test_is_on_watchlist_only_admin(
         calls["count"] += 1
         return [SimpleNamespace(guid="guid"), SimpleNamespace(guid=None)]
 
-    plex_client._is_admin = True
     plex_client._account = _account_stub(id=1, watchlist=fake_watchlist)
     monkeypatch.setattr(client_module, "monotonic", lambda: 50.0)
 
