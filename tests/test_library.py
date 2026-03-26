@@ -144,6 +144,7 @@ class FakePlexClient:
         self._account = _account_stub(id=1, authToken="token", watchlist=lambda: [])
         self._user_id = 1
         self._display_name = "Demo"
+        self._is_managed_user = False
         self._helper = client_module.PlexClient(
             logger=cast(ProviderLogger, getLogger("test.library.client")),
             url="https://plex.example",
@@ -176,6 +177,10 @@ class FakePlexClient:
     @property
     def account(self):
         return self._account
+
+    @property
+    def is_managed_user(self) -> bool:
+        return self._is_managed_user
 
     def sections(self):
         """Return the library sections."""

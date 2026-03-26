@@ -16,6 +16,7 @@ def _server_stub(**kwargs: Any) -> client_module.PlexServer:
 
 
 def _account_stub(**kwargs: Any) -> client_module.MyPlexAccount:
+    kwargs.setdefault("restricted", False)
     return cast(client_module.MyPlexAccount, SimpleNamespace(**kwargs))
 
 
