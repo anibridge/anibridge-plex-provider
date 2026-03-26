@@ -8,11 +8,13 @@ from logging import Logger
 from time import monotonic
 from typing import Literal, cast
 from urllib.parse import urlparse
+from xml.etree import ElementTree
 
+import requests
 from anibridge.utils.datetime import normalize_local_datetime
 from anibridge.utils.types import ProviderLogger
 from plexapi.library import LibrarySection, MovieSection, ShowSection
-from plexapi.myplex import MyPlexAccount, MyPlexUser
+from plexapi.myplex import MyPlexAccount
 from plexapi.server import PlexServer
 from plexapi.video import Movie, Show, Video
 
@@ -64,12 +66,10 @@ class PlexClient:
         self._section_filter = {value.lower() for value in section_filter or ()}
         self._genre_filter = tuple(genre_filter or ())
 
-        self._admin_client: PlexServer | None = None
         self._user_client: PlexServer | None = None
         self._account: MyPlexAccount | None = None
         self._user_id: int | None = None
         self._display_name: str | None = None
-        self._is_admin: bool | None = None
 
         self._sections: list[MovieSection | ShowSection] = []
         self._continue_cache: dict[str, _FrozenCacheEntry] = {}
@@ -85,12 +85,10 @@ class PlexClient:
     async def initialize(self) -> None:
         """Establish the Plex session and prime provider caches."""
         (
-            self._admin_client,
             self._user_client,
             self._account,
             self._user_id,
             self._display_name,
-            self._is_admin,
         ) = await asyncio.to_thread(self._initialize_clients)
 
         self._sections = await asyncio.to_thread(
@@ -106,11 +104,11 @@ class PlexClient:
         )
 
         def _on_deck_window_sync() -> timedelta | None:
-            admin_client = self._admin_client
-            if admin_client is None:
+            user_client = self._user_client
+            if user_client is None:
                 return None
             try:
-                window_value = admin_client.settings.get("onDeckWindow").value
+                window_value = user_client.settings.get("onDeckWindow").value
             except Exception:
                 return None
             try:
@@ -123,100 +121,57 @@ class PlexClient:
 
     def _initialize_clients(
         self,
-    ) -> tuple[PlexServer, PlexServer, MyPlexAccount, int, str, bool]:
-        session: SelectiveVerifySession | None = None
+    ) -> tuple[PlexServer, MyPlexAccount, int, str]:
+        session = requests.Session()
         parsed = urlparse(self._url)
         if parsed.scheme == "https":
             session = SelectiveVerifySession(
                 whitelist=[parsed.hostname], logger=cast(Logger, self.log)
             )
 
-        admin_client = PlexServer(
-            self._url,
-            self._token,
-            session=session,
-        )
-        account = admin_client.myPlexAccount()
-
-        requested_user = (self._user or "").strip() or None
-        target_user: MyPlexUser | None = None
-        is_admin = True
-
-        if requested_user:
-            requested_lower = requested_user.lower()
-            matches_account = any(
-                candidate and candidate.lower() == requested_lower
-                for candidate in (account.username, account.email, account.title)
+        # Extract machineIdentifier from the identity endpoint (it's unauthenticated)
+        identity = session.get(f"{self._url}/identity", timeout=10)
+        try:
+            machine_id = ElementTree.fromstring(identity.content).attrib.get(
+                "machineIdentifier"
             )
-            if not matches_account:
-                target = requested_user.lower()
-                for user in account.users():
-                    if target in (
-                        (user.username or "").lower(),
-                        (user.email or "").lower(),
-                        (user.title or "").lower(),
-                    ):
-                        target_user = user
-                        break
-                if target_user is None:
-                    raise ValueError(
-                        f"User '{requested_user}' not found in Plex account"
-                    )
-                is_admin = False
+            self.log.debug(f"Parsed Plex machineIdentifier '{machine_id}'")
+        except Exception:
+            self.log.error(f"Failed to parse Plex identity from {self._url}/identity")
+            raise
 
-        user_client = admin_client
-        if target_user is not None:
-            login = target_user.username or target_user.email or target_user.title
-            if not login:
-                raise ValueError(
-                    "Unable to switch Plex user: no username, email, or title available"
-                )
-            try:
-                user_client = admin_client.switchUser(login)
-            except Exception as exc:
-                raise ValueError(f"Failed to switch to Plex user '{login}'") from exc
+        account = MyPlexAccount(token=self._token, session=session)
+        if self._home_user:
+            self.log.info(f"Switching to Plex Home user '{self._home_user}'")
+            account = cast(
+                MyPlexAccount,
+                account.switchHomeUser(self._home_user),
+            )
 
-        if target_user is not None:
-            display_candidates = (
-                target_user.username,
-                target_user.email,
-                target_user.title,
-                requested_user,
-                "Plex User",
-            )
-        else:
-            display_candidates = (
-                account.username,
-                account.email,
-                account.title,
-                requested_user,
-                "Plex Admin",
-            )
+        user_token = account.resource(machine_id).accessToken
+        user_client = PlexServer(self._url, token=user_token, session=session)
+
+        user_id = int(account.id)
+        if user_id is None:
+            raise ValueError("Unable to resolve Plex account id for the active user")
 
         display_name = next(
-            (candidate for candidate in display_candidates if candidate),
-            "Plex User",
+            (
+                candidate
+                for candidate in (account.username, account.email, account.title)
+                if candidate
+            ),
+            f"Plex User ({user_id})",
         )
 
-        user_id = target_user.id if target_user else account.id
-
-        return (
-            admin_client,
-            user_client,
-            account,
-            user_id,
-            display_name,
-            is_admin,
-        )
+        return (user_client, account, user_id, display_name)
 
     async def close(self) -> None:
         """Release any held resources."""
-        self._admin_client = None
         self._user_client = None
         self._account = None
         self._user_id = None
         self._display_name = None
-        self._is_admin = None
         self._sections.clear()
         self.clear_cache()
 
@@ -224,13 +179,7 @@ class PlexClient:
         """Clear cached continue-watching and ordering metadata."""
         self._continue_cache.clear()
         self._ordering_cache.clear()
-
-    @property
-    def is_admin(self) -> bool:
-        """Return whether the connected Plex user is an admin."""
-        if self._is_admin is None:
-            raise RuntimeError("Plex client has not been initialized")
-        return self._is_admin
+        self._watchlist_cache = None
 
     @property
     def user_id(self) -> int:
@@ -399,10 +348,10 @@ class PlexClient:
 
     async def fetch_history(self, item: Video) -> Sequence[tuple[str, datetime]]:
         """Return the watch history for the given Plex item."""
-        admin_client = self._ensure_admin_client()
+        user_client = self._ensure_user_client()
         try:
             history_objects = await asyncio.to_thread(
-                admin_client.history,
+                user_client.history,
                 ratingKey=item.ratingKey,
                 accountID=self.user_id,
                 librarySectionID=item.librarySectionID,
@@ -425,9 +374,6 @@ class PlexClient:
 
     def is_on_watchlist(self, item: Video) -> bool:
         """Determine whether the given item appears in the user's watchlist."""
-        if not self.is_admin:
-            return False
-
         now = monotonic()
         cache_entry = self._watchlist_cache
         if cache_entry is None or cache_entry.expires_at <= now:
@@ -490,9 +436,3 @@ class PlexClient:
         if self._user_client is None:
             raise RuntimeError("Plex client has not been initialized")
         return self._user_client
-
-    def _ensure_admin_client(self) -> PlexServer:
-        """Ensure the admin Plex client is available."""
-        if self._admin_client is None:
-            raise RuntimeError("Plex client has not been initialized")
-        return self._admin_client

@@ -508,7 +508,6 @@ class PlexLibraryProvider(LibraryProvider):
         )
         self._community_client: PlexCommunityClient | None = None
 
-        self._is_admin_user = False
         self._user: LibraryUser | None = None
 
         self._sections: list[PlexLibrarySection] = []
@@ -518,7 +517,6 @@ class PlexLibraryProvider(LibraryProvider):
         """Connect to Plex and prepare provider state."""
         self.log.debug("Initializing Plex provider client")
         await self._client.initialize()
-        self._is_admin_user = self._client.is_admin
         self._user = LibraryUser(
             key=str(self._client.user_id),
             title=self._client.display_name,
@@ -526,7 +524,7 @@ class PlexLibraryProvider(LibraryProvider):
 
         self._sections = self._build_sections()
         self._community_client = PlexCommunityClient(
-            plex_token=self.parsed_config.token,
+            plex_token=self._client.account.authToken,
             logger=self.log.getChild("community_client"),
         )
 
@@ -677,7 +675,7 @@ class PlexLibraryProvider(LibraryProvider):
         Returns:
             str | None: The user's review text, or None if not reviewed.
         """
-        if not self._community_client or not self._is_admin_user:
+        if not self._community_client:
             return None
         if item.userRating is None and item.lastRatedAt is None:  # Prereq for reviews
             return None
