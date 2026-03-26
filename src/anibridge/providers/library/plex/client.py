@@ -142,11 +142,22 @@ class PlexClient:
 
         account = MyPlexAccount(token=self._token, session=session)
         if self._home_user:
-            self.log.info(f"Switching to Plex Home user '{self._home_user}'")
+            self.log.debug(
+                f"Attempting to switch to Plex Home user '{self._home_user}'"
+            )
             account = cast(
                 MyPlexAccount,
                 account.switchHomeUser(self._home_user),
             )
+            if account.restricted:  # Supposedly means this is a managed home user
+                self.log.debug(
+                    f"Switched to managed Plex Home user '{account.username}' "
+                    f"({account.id})"
+                )
+            else:
+                self.log.debug(
+                    f"Switched to Plex Home user '{account.username}' ({account.id})"
+                )
 
         user_token = account.resource(machine_id).accessToken
         user_client = PlexServer(self._url, token=user_token, session=session)
@@ -201,6 +212,11 @@ class PlexClient:
         if self._account is None:
             raise RuntimeError("Plex client has not been initialized")
         return self._account
+
+    @property
+    def is_managed_user(self) -> bool:
+        """Return whether the connected user is a managed Plex Home user."""
+        return bool(self.account.restricted)
 
     @property
     def user_client(self) -> PlexServer:

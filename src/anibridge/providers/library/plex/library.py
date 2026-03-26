@@ -523,10 +523,13 @@ class PlexLibraryProvider(LibraryProvider):
         )
 
         self._sections = self._build_sections()
-        self._community_client = PlexCommunityClient(
-            plex_token=self._client.account.authToken,
-            logger=self.log.getChild("community_client"),
-        )
+
+        # Managed users don't have access to the Plex Community API
+        if not self._client.is_managed_user:
+            self._community_client = PlexCommunityClient(
+                plex_token=self._client.account.authToken,
+                logger=self.log.getChild("community_client"),
+            )
 
         await self.clear_cache()
         self.log.debug(
