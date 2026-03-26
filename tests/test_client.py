@@ -89,7 +89,7 @@ async def test_initialize_populates_state_and_sections(
 
     plex_client._continue_cache["stale"] = client_module._FrozenCacheEntry(
         keys=frozenset({"old"}),
-        expires_at=0,
+        cached_at=datetime.now(tz=UTC),
     )
     plex_client._ordering_cache[1] = "tmdb"
 
@@ -221,9 +221,7 @@ async def test_list_section_items_applies_filters(
     assert filters[-1] == {"genre": ("Drama",)}
 
 
-def test_is_on_continue_watching_caches_results(
-    monkeypatch: pytest.MonkeyPatch, plex_client: client_module.PlexClient
-):
+def test_is_on_continue_watching_caches_results(plex_client: client_module.PlexClient):
     """Test that is_on_continue_watching caches results correctly."""
 
     class DummySection:
@@ -236,10 +234,9 @@ def test_is_on_continue_watching_caches_results(
             self.invocations += 1
             return [SimpleNamespace(ratingKey="5")]
 
-    monkeypatch.setattr(client_module, "monotonic", lambda: 10.0)
     plex_client._user_client = object()  # type: ignore
     section = cast(client_module.LibrarySection, DummySection())
-    video = cast(client_module.Video, SimpleNamespace(ratingKey="5"))
+    video = cast(client_module.Video, SimpleNamespace(ratingKey="5", updatedAt=None))
 
     assert plex_client.is_on_continue_watching(section, video)
     assert plex_client.is_on_continue_watching(section, video)
@@ -279,7 +276,6 @@ def test_is_on_watchlist_caches_results(
         return [SimpleNamespace(guid="guid"), SimpleNamespace(guid=None)]
 
     plex_client._account = _account_stub(id=1, watchlist=fake_watchlist)
-    monkeypatch.setattr(client_module, "monotonic", lambda: 50.0)
 
     assert plex_client.is_on_watchlist(
         cast(client_module.Video, SimpleNamespace(guid="guid"))
@@ -288,6 +284,49 @@ def test_is_on_watchlist_caches_results(
         cast(client_module.Video, SimpleNamespace(guid="guid"))
     )
     assert calls["count"] == 1
+
+
+def test_is_on_watchlist_first_fetch_failure_raises(
+    plex_client: client_module.PlexClient,
+):
+    """If no cache exists yet, watchlist fetch failures should be raised."""
+
+    def failing_watchlist():
+        raise RuntimeError("watchlist unavailable")
+
+    plex_client._account = _account_stub(id=1, watchlist=failing_watchlist)
+
+    with pytest.raises(RuntimeError, match="watchlist unavailable"):
+        plex_client.is_on_watchlist(
+            cast(client_module.Video, SimpleNamespace(guid="guid"))
+        )
+
+    assert plex_client._watchlist_cache is None
+
+
+def test_is_on_watchlist_refresh_failure_uses_stale_cache(
+    plex_client: client_module.PlexClient,
+):
+    """If refresh fails after a successful fetch, stale watchlist should be reused."""
+    calls = {"count": 0}
+
+    def failing_watchlist():
+        calls["count"] += 1
+        raise RuntimeError("transient watchlist failure")
+
+    previous_cached_at = datetime.now(tz=UTC) - timedelta(minutes=10)
+    plex_client._watchlist_cache = client_module._FrozenCacheEntry(
+        keys=frozenset({"guid"}),
+        cached_at=previous_cached_at,
+    )
+    plex_client._account = _account_stub(id=1, watchlist=failing_watchlist)
+
+    assert plex_client.is_on_watchlist(
+        cast(client_module.Video, SimpleNamespace(guid="guid"))
+    )
+    assert calls["count"] == 1
+    assert plex_client._watchlist_cache is not None
+    assert plex_client._watchlist_cache.cached_at > previous_cached_at
 
 
 def test_get_ordering_and_filters(plex_client: client_module.PlexClient):
@@ -304,7 +343,9 @@ def test_get_ordering_and_filters(plex_client: client_module.PlexClient):
     assert plex_client.get_ordering(show) == "tvdb"
 
     plex_client._continue_cache = {
-        "a": client_module._FrozenCacheEntry(keys=frozenset({"1"}), expires_at=0)
+        "a": client_module._FrozenCacheEntry(
+            keys=frozenset({"1"}), cached_at=datetime.now(tz=UTC)
+        )
     }
     plex_client._ordering_cache = {1: "tmdb"}
     plex_client.clear_cache()
