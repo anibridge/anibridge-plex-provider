@@ -1,6 +1,7 @@
 """Plex client abstractions consumed by the Plex library provider."""
 
 import asyncio
+import time
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -430,6 +431,7 @@ class PlexClient:
                 )
                 # No successful fetch yet, fail so we don't sync with no watchlist.
                 if cache_entry is None:
+                    time.sleep(1)  # Don't hammer Plex if they're having issues
                     raise
 
                 # Stale cache available, keep using it until the next refresh.
