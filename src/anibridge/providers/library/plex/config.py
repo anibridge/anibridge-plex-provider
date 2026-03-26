@@ -1,6 +1,6 @@
 """Plex provider configuration."""
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class PlexProviderConfig(BaseModel):
@@ -8,9 +8,16 @@ class PlexProviderConfig(BaseModel):
 
     url: str = Field(default=..., description="The base URL of the Plex server.")
     token: str = Field(
-        default=..., description="The account API token of the Plex server admin."
+        default=..., description="The Plex authentication token for the target user."
     )
-    user: str = Field(default=..., description="The Plex user to synchronize.")
+    home_user: str | None = Field(
+        default=None,
+        description=(
+            "Optional Plex home user identifier. "
+            "Only used when the provided token belongs to a Plex Home admin."
+        ),
+        validation_alias="user",
+    )
     sections: list[str] = Field(
         default_factory=list,
         description=(
@@ -25,3 +32,5 @@ class PlexProviderConfig(BaseModel):
         default=True,
         description="Whether to enforce strict matching when resolving mappings.",
     )
+
+    model_config = ConfigDict(validate_by_alias=True, validate_by_name=True)

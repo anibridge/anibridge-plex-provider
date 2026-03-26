@@ -3,7 +3,6 @@
 import itertools
 from collections.abc import Sequence
 from datetime import datetime
-from logging import Logger
 from typing import TYPE_CHECKING, cast
 
 import plexapi.library as plexapi_library
@@ -24,6 +23,7 @@ from anibridge.library import (
 from anibridge.library.base import MappingDescriptor
 from anibridge.utils.datetime import normalize_local_datetime
 from anibridge.utils.image import fetch_image_as_data_url
+from anibridge.utils.types import ProviderLogger
 
 from anibridge.providers.library.plex.client import PlexClient
 from anibridge.providers.library.plex.community import PlexCommunityClient
@@ -488,11 +488,11 @@ class PlexLibraryProvider(LibraryProvider):
 
     NAMESPACE = "plex"
 
-    def __init__(self, *, logger: Logger, config: dict | None = None) -> None:
+    def __init__(self, *, logger: ProviderLogger, config: dict | None = None) -> None:
         """Parse configuration and prepare provider defaults.
 
         Args:
-            logger (Logger): Injected AniBridge logger.
+            logger (ProviderLogger): Injected AniBridge logger.
             config (dict | None): Optional configuration options for the provider.
         """
         super().__init__(logger=logger, config=config)
@@ -502,7 +502,7 @@ class PlexLibraryProvider(LibraryProvider):
             logger=self.log,
             url=self.parsed_config.url,
             token=self.parsed_config.token,
-            user=self.parsed_config.user,
+            home_user=self.parsed_config.home_user,
             section_filter=self.parsed_config.sections,
             genre_filter=self.parsed_config.genres,
         )
@@ -713,7 +713,7 @@ class PlexLibraryProvider(LibraryProvider):
             return tuple(
                 HistoryEntry(
                     library_key=rating_key,
-                    viewed_at=normalize_local_datetime(viewed_at),
+                    viewed_at=cast(datetime, normalize_local_datetime(viewed_at)),
                 )
                 for rating_key, viewed_at in plex_history
             )

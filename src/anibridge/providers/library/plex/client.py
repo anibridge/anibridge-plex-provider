@@ -40,7 +40,7 @@ class PlexClient:
         logger: ProviderLogger,
         url: str,
         token: str,
-        user: str | None = None,
+        home_user: str | None = None,
         section_filter: Sequence[str] | None = None,
         genre_filter: Sequence[str] | None = None,
     ) -> None:
@@ -50,7 +50,7 @@ class PlexClient:
             logger (ProviderLogger): Injected logger.
             url (str): The base URL of the Plex server.
             token (str): The Plex authentication token.
-            user (str | None): The Plex user to connect as (admin if None).
+            home_user (str | None): Optional Plex Home user to switch to.
             section_filter (Sequence[str] | None): If provided, only include sections
                 whose titles are in this list (case-insensitive).
             genre_filter (Sequence[str] | None): If provided, only include items that
@@ -60,7 +60,7 @@ class PlexClient:
 
         self._url = url
         self._token = token
-        self._user = user
+        self._home_user = home_user
         self._section_filter = {value.lower() for value in section_filter or ()}
         self._genre_filter = tuple(genre_filter or ())
 
