@@ -419,14 +419,39 @@ class PlexClient:
                     if watch_item.guid is not None
                 }
             except Exception:
-                keys = set()
+                display_label = self._display_name or "unknown user"
+                user_id_label = (
+                    str(self._user_id) if self._user_id is not None else "unknown id"
+                )
+                self.log.error(
+                    "Failed to fetch Plex watchlist for '%s' (%s)",
+                    display_label,
+                    user_id_label,
+                )
+                # No successful fetch yet, fail so we don't sync with no watchlist.
+                if cache_entry is None:
+                    raise
 
-            cache_entry = _FrozenCacheEntry(
-                keys=frozenset(keys),
-                cached_at=now,
-            )
-            self._watchlist_cache = cache_entry
+                # Stale cache available, keep using it until the next refresh.
+                self.log.debug(
+                    "Using stale Plex watchlist for '%s' (%s) (last updated at %s)",
+                    display_label,
+                    user_id_label,
+                    cache_entry.cached_at.isoformat(),
+                )
+                cache_entry = _FrozenCacheEntry(
+                    keys=cache_entry.keys,
+                    cached_at=now,
+                )
+                self._watchlist_cache = cache_entry
+            else:
+                cache_entry = _FrozenCacheEntry(
+                    keys=frozenset(keys),
+                    cached_at=now,
+                )
+                self._watchlist_cache = cache_entry
 
+        assert cache_entry is not None
         return item.guid is not None and item.guid in cache_entry.keys
 
     def get_ordering(self, show: Show) -> Ordering:
