@@ -33,7 +33,7 @@ The Plex authentication token for the target user being synchronized. Get a toke
 
 `str` (optional, default: `None`)
 
-Optional Plex Home user to use.
+Optional Plex Home user to use. If the token provided belongs to the user you want to synchronize, you can leave this unset.
 
 If set, the provider will attempt to switch to the specified Plex Home user using the Plex API. The account token provided must be the token of the Plex Home owner, otherwise the provider will fail to authenticate.
 

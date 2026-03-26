@@ -33,4 +33,4 @@ class PlexProviderConfig(BaseModel):
         description="Whether to enforce strict matching when resolving mappings.",
     )
 
-    model_config = ConfigDict(validate_by_alias=True, validate_by_name=True)
+    model_config = ConfigDict(populate_by_name=True)
