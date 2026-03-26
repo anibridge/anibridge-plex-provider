@@ -11,7 +11,7 @@ library_provider_config:
   plex:
     url: ...
     token: ...
-    user: ...
+    # home_user: ...
     # sections: []
     # genres: []
     # strict: true
@@ -27,13 +27,15 @@ The base URL of the Plex server (e.g., http://localhost:32400).
 
 `str` (required)
 
-The account API token of the Plex server admin. Get a token by following [these instructions](https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/).
+The Plex authentication token for the target user being synchronized. Get a token by following [these instructions](https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/).
 
-### `user`
+### `home_user`
 
-`str` (required)
+`str` (optional, default: `None`)
 
-The Plex user to synchronize. This can be a username, email, or display name.
+Optional Plex Home user to use.
+
+If set, the provider will attempt to switch to the specified Plex Home user using the Plex API. The account token provided must be the token of the Plex Home owner, otherwise the provider will fail to authenticate.
 
 ### `sections`
 
