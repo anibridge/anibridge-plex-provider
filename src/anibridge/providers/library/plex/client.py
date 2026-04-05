@@ -143,13 +143,12 @@ class PlexClient:
                 )
                 if account.restricted:  # Supposedly means this is a managed home user
                     self.log.debug(
-                        f"Switched to managed Plex Home user '{account.username}' "
+                        f"Switched to managed Plex Home user '{account.title}' "
                         f"({account.id})"
                     )
                 else:
                     self.log.debug(
-                        f"Switched to Plex Home user '{account.username}' "
-                        f"({account.id})"
+                        f"Switched to Plex Home user '{account.title}' ({account.id})"
                     )
 
         user_token = account.resource(machine_id).accessToken
