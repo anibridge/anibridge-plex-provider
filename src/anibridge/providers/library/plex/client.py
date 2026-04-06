@@ -94,7 +94,7 @@ class PlexClient:
         self._sections = await asyncio.to_thread(
             lambda: [
                 raw
-                for raw in self._ensure_user_client().library.sections()
+                for raw in self.user_client.library.sections()
                 if isinstance(raw, (MovieSection, ShowSection))
                 and (
                     not self._section_filter
@@ -213,7 +213,9 @@ class PlexClient:
     @property
     def user_client(self) -> PlexServer:
         """Return the active Plex user client."""
-        return self._ensure_user_client()
+        if self._user_client is None:
+            raise RuntimeError("Plex client has not been initialized")
+        return self._user_client
 
     def sections(self) -> Sequence[MovieSection | ShowSection]:
         """Return the cached list of Plex library sections."""
@@ -334,8 +336,6 @@ class PlexClient:
         item: Video,
     ) -> bool:
         """Determine whether the given item appears in the Continue Watching hub."""
-        self._ensure_user_client()
-
         cache_entry = self._continue_cache.get(str(section.key))
         # Invalidate cache if the item's last updated time is after cache creation
         should_refresh = cache_entry is None
@@ -374,9 +374,8 @@ class PlexClient:
 
     async def fetch_history(self, item: Video) -> Sequence[tuple[str, datetime]]:
         """Return the watch history for the given Plex item."""
-        user_client = self._ensure_user_client()
         history_objects = await asyncio.to_thread(
-            user_client.history,
+            self.user_client.history,
             ratingKey=item.ratingKey,
             accountID=self.user_id,
             librarySectionID=item.librarySectionID,
@@ -513,9 +512,3 @@ class PlexClient:
         if url.startswith("https://image.tmdb.org/"):
             return re.sub(r"/w\d+|/original", f"/{size}", url)
         return url
-
-    def _ensure_user_client(self) -> PlexServer:
-        """Ensure the user Plex client is available."""
-        if self._user_client is None:
-            raise RuntimeError("Plex client has not been initialized")
-        return self._user_client
