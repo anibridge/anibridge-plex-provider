@@ -121,7 +121,7 @@ class PlexClient:
             machine_id = ElementTree.fromstring(identity.content).attrib.get(
                 "machineIdentifier"
             )
-            self.log.debug(f"Parsed Plex machineIdentifier '{machine_id}'")
+            self.log.debug(f"Parsed Plex machineIdentifier $$'{machine_id}'$$")
         except Exception:
             self.log.error(f"Failed to parse Plex identity from {self._url}/identity")
             raise
@@ -133,8 +133,8 @@ class PlexClient:
             )
             if self._home_user in (account.username, account.email):
                 self.log.warning(
-                    f"Provided Plex Home user '{self._home_user}' matches the "
-                    f"token owner's username/email; skipping switch "
+                    f"The provided Plex Home user $$'{self._home_user}'$$ matches the "
+                    f"active account. Skipping redundant account switch."
                 )
             else:
                 account = cast(
@@ -143,12 +143,13 @@ class PlexClient:
                 )
                 if account.restricted:  # Supposedly means this is a managed home user
                     self.log.debug(
-                        f"Switched to managed Plex Home user '{account.title}' "
+                        f"Switched to managed Plex Home user $$'{account.title}'$$ "
                         f"({account.id})"
                     )
                 else:
                     self.log.debug(
-                        f"Switched to Plex Home user '{account.title}' ({account.id})"
+                        f"Switched to Plex Home user $$'{account.title}'$$ "
+                        f"({account.id})"
                     )
 
         user_token = account.resource(machine_id).accessToken
