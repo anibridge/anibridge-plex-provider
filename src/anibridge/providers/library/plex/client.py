@@ -144,7 +144,7 @@ class PlexClient:
             else:
                 home_user_obj = cast(MyPlexUser, account.user(self._home_user))
                 user = home_user_obj
-                account = cast(MyPlexAccount, account.switchHomeUser(home_user_obj.id))
+                account = cast(MyPlexAccount, account.switchHomeUser(home_user_obj))
                 if account.restricted:  # Supposedly means this is a managed home user
                     self.log.debug(
                         f"Switched to managed Plex Home user $$'{account.title}'$$ "
