@@ -69,7 +69,9 @@ async def test_initialize_populates_state_and_sections(
         username="demo",
         email="demo@example",
         title="Demo",
+        friendlyName="demo",
         users=lambda: [],
+        user=lambda _name: SimpleNamespace(id=1),
         resource=lambda _machine_id: SimpleNamespace(accessToken="token"),
     )
 
@@ -116,6 +118,7 @@ def test_initialize_switches_home_user_when_requested(monkeypatch: pytest.Monkey
     home_user = cast(
         Any,
         SimpleNamespace(
+            id=99,
             username="child",
             email="child@example",
             title="Child",
@@ -128,9 +131,15 @@ def test_initialize_switches_home_user_when_requested(monkeypatch: pytest.Monkey
         username="child",
         email="child@example",
         title="Child",
+        friendlyName="child",
         users=lambda: [],
         resource=lambda _machine_id: SimpleNamespace(accessToken="switched-token"),
     )
+
+    def _user_lookup(name):
+        if name == "child":
+            return home_user
+        raise Exception(f"Unknown user {name}")
 
     account = _account_stub(
         id=1,
@@ -139,6 +148,7 @@ def test_initialize_switches_home_user_when_requested(monkeypatch: pytest.Monkey
         email="admin@example",
         title="Admin",
         users=lambda: [home_user],
+        user=_user_lookup,
         switchHomeUser=lambda _user, pin=None: switched_account,
     )
 
@@ -166,9 +176,13 @@ def test_initialize_switches_home_user_when_requested(monkeypatch: pytest.Monkey
         home_user="child",
     )
 
-    user_client, _, user_id, display_name = client._initialize_clients()
+    user_client, _, account_id, user, user_id, display_name = (
+        client._initialize_clients()
+    )
     assert user_client is not None
-    assert user_id == 2
+    assert account_id == 2
+    assert user is home_user
+    assert user_id == 99
     assert display_name == "child"
 
 

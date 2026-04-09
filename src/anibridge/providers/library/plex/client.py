@@ -18,7 +18,7 @@ from anibridge.utils.datetime import normalize_local_datetime
 from anibridge.utils.image import fetch_image_as_data_url
 from anibridge.utils.types import ProviderLogger
 from plexapi.library import LibrarySection, MovieSection, ShowSection
-from plexapi.myplex import MyPlexAccount
+from plexapi.myplex import MyPlexAccount, MyPlexUser
 from plexapi.server import PlexServer
 from plexapi.video import Movie, Show, Video
 
@@ -74,6 +74,8 @@ class PlexClient:
 
         self._user_client: PlexServer | None = None
         self._account: MyPlexAccount | None = None
+        self._account_id: int | None = None
+        self._user: MyPlexUser | None = None
         self._user_id: int | None = None
         self._display_name: str | None = None
 
@@ -87,6 +89,8 @@ class PlexClient:
         (
             self._user_client,
             self._account,
+            self._account_id,
+            self._user,
             self._user_id,
             self._display_name,
         ) = await asyncio.to_thread(self._initialize_clients)
@@ -107,7 +111,7 @@ class PlexClient:
 
     def _initialize_clients(
         self,
-    ) -> tuple[PlexServer, MyPlexAccount, int, str]:
+    ) -> tuple[PlexServer, MyPlexAccount, int, MyPlexUser | None, int | None, str]:
         session = requests.Session()
         parsed = urlparse(self._url)
         if parsed.scheme == "https":
@@ -127,6 +131,7 @@ class PlexClient:
             raise
 
         account = MyPlexAccount(token=self._token, session=session)
+        user: MyPlexUser | None = None
         if self._home_user:
             self.log.debug(
                 f"Attempting to switch to Plex Home user '{self._home_user}'"
@@ -137,10 +142,9 @@ class PlexClient:
                     f"active account. Skipping redundant account switch."
                 )
             else:
-                account = cast(
-                    MyPlexAccount,
-                    account.switchHomeUser(self._home_user),
-                )
+                home_user_obj = cast(MyPlexUser, account.user(self._home_user))
+                user = home_user_obj
+                account = cast(MyPlexAccount, account.switchHomeUser(home_user_obj.id))
                 if account.restricted:  # Supposedly means this is a managed home user
                     self.log.debug(
                         f"Switched to managed Plex Home user $$'{account.title}'$$ "
@@ -155,24 +159,30 @@ class PlexClient:
         user_token = account.resource(machine_id).accessToken
         user_client = PlexServer(self._url, token=user_token, session=session)
 
-        user_id = int(account.id)
-        if user_id is None:
-            raise ValueError("Unable to resolve Plex account id for the active user")
-
         display_name = (
             account.username
             or account.email
-            or account.title
             or self._home_user
+            or account.title
+            or account.friendlyName
             or "unknown user"
         )
 
-        return (user_client, account, user_id, display_name)
+        return (
+            user_client,
+            account,
+            account.id,
+            user,
+            user.id if user else account.id,
+            display_name,
+        )
 
     async def close(self) -> None:
         """Release any held resources."""
         self._user_client = None
         self._account = None
+        self._account_id = None
+        self._user = None
         self._user_id = None
         self._display_name = None
         self._sections.clear()
@@ -185,8 +195,15 @@ class PlexClient:
         self._watchlist_cache = None
 
     @property
+    def account_id(self) -> int | None:
+        """Return the numeric Plex account ID for the connected user."""
+        if self._account_id is None:
+            raise RuntimeError("Plex client has not been initialized")
+        return self._account_id
+
+    @property
     def user_id(self) -> int:
-        """Return the numeric Plex user id for the connected user."""
+        """Return the numeric Plex user ID for the connected user."""
         if self._user_id is None:
             raise RuntimeError("Plex client has not been initialized")
         return self._user_id

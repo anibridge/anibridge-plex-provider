@@ -481,6 +481,12 @@ class PlexLibraryProvider(LibraryProvider):
 
     async def parse_webhook(self, request: Request) -> tuple[bool, Sequence[str]]:
         """Parse a Plex webhook request and determine affected media items."""
+        if not self._user:
+            self.log.error(
+                "Webhook: Received webhook request before provider initialization"
+            )
+            raise RuntimeError("Provider must be initialized before parsing webhooks")
+
         payload = await WebhookParser.from_request(request)
 
         if not payload.account_id:
@@ -490,6 +496,12 @@ class PlexLibraryProvider(LibraryProvider):
             self.log.warning("Webhook: No rating key found in payload")
             raise ValueError("No rating key found in webhook payload")
 
+        webhook_account_id = payload.account_id
+        user_matches = (
+            self._client.account_id == webhook_account_id
+            or self._client.user_id == webhook_account_id
+        )
+
         if (
             payload.event_type
             in (
@@ -498,8 +510,7 @@ class PlexLibraryProvider(LibraryProvider):
                 PlexWebhookEventType.SCROBBLE,
                 PlexWebhookEventType.STOP,
             )
-            and self._user
-            and self._user.key == str(payload.account_id)
+            and user_matches
         ):
             self.log.debug(
                 f"Webhook: Matched webhook event {payload.event_type} to provider user "

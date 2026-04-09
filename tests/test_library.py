@@ -142,7 +142,8 @@ class FakePlexClient:
             url=lambda path, includeToken=True: f"https://plex{path}",
         )
         self._account = _account_stub(id=1, authToken="token", watchlist=lambda: [])
-        self._user_id = 1
+        self._account_id: int = 1
+        self._user_id: int = 1
         self._display_name = "Demo"
         self._is_managed_user = False
         self._helper = client_module.PlexClient(
@@ -161,6 +162,10 @@ class FakePlexClient:
     async def close(self) -> None:
         """Simulate client closure."""
         self.closed = True
+
+    @property
+    def account_id(self) -> int:
+        return self._account_id
 
     @property
     def user_id(self) -> int:
@@ -465,6 +470,39 @@ async def test_parse_webhook_ignores_mismatched_account(
     should_sync, keys = await provider.parse_webhook(cast(Request, SimpleNamespace()))
     assert should_sync is False
     assert keys == tuple()
+
+
+@pytest.mark.asyncio
+async def test_parse_webhook_matches_home_user_id(
+    monkeypatch: pytest.MonkeyPatch,
+    initialized_provider: tuple[
+        library_module.PlexLibraryProvider,
+        FakePlexClient,
+        StubMovie,
+        StubShow,
+        StubEpisode,
+    ],
+):
+    """Webhook with home-user ID should match managed user profiles."""
+    provider, fake_client, *_ = initialized_provider
+
+    # Simulate a managed home user whose plex.tv account ID (account_id=1)
+    # differs from the Plex Home user ID that the server puts in webhooks.
+    fake_client._user_id = 42
+
+    class StubWebhook:
+        account_id = 42
+        top_level_rating_key = "managed-key"
+        event = "media.scrobble"
+        event_type = library_module.PlexWebhookEventType.SCROBBLE
+
+    async def fake_from_request(_request):
+        return StubWebhook()
+
+    monkeypatch.setattr(library_module.WebhookParser, "from_request", fake_from_request)
+    should_sync, keys = await provider.parse_webhook(cast(Request, SimpleNamespace()))
+    assert should_sync is True
+    assert keys == ("managed-key",)
 
 
 @pytest.mark.asyncio
