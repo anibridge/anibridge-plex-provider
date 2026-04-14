@@ -375,6 +375,7 @@ class PlexClient:
         )
 
         if should_refresh:
+            self.log.debug("Refreshing continue watching cache")
             rating_keys: set[str] = set()
             for continue_item in section.continueWatching():
                 for key in (
@@ -421,6 +422,7 @@ class PlexClient:
             cache_entry is None
             or cache_entry.cached_at + self._WATCHLIST_CACHE_TTL <= now
         ):
+            self.log.debug("Refreshing watchlist cache")
             try:
                 # Rating keys won't work here because watchlist items can exist outside
                 # of the user's server. We'll use GUIDs as a substitute.
