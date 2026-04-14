@@ -249,7 +249,16 @@ def test_is_on_continue_watching_caches_results(plex_client: client_module.PlexC
 
     plex_client._user_client = object()  # type: ignore
     section = cast(client_module.LibrarySection, DummySection())
-    video = cast(client_module.Video, SimpleNamespace(ratingKey="5", updatedAt=None))
+    video = cast(
+        client_module.Video,
+        SimpleNamespace(
+            ratingKey="5",
+            updatedAt=None,
+            lastViewedAt=None,
+            lastRatedAt=None,
+            addedAt=None,
+        ),
+    )
 
     assert plex_client.is_on_continue_watching(section, video)
     assert plex_client.is_on_continue_watching(section, video)
@@ -276,15 +285,34 @@ def test_is_on_continue_watching_matches_show_and_season_keys(
     plex_client._user_client = object()  # type: ignore
     section = cast(client_module.LibrarySection, DummySection())
     show = cast(
-        client_module.Video, SimpleNamespace(ratingKey="show-key", updatedAt=None)
+        client_module.Video,
+        SimpleNamespace(
+            ratingKey="show-key",
+            updatedAt=None,
+            lastViewedAt=None,
+            lastRatedAt=None,
+            addedAt=None,
+        ),
     )
     season = cast(
         client_module.Video,
-        SimpleNamespace(ratingKey="season-key", updatedAt=None),
+        SimpleNamespace(
+            ratingKey="season-key",
+            updatedAt=None,
+            lastViewedAt=None,
+            lastRatedAt=None,
+            addedAt=None,
+        ),
     )
     episode = cast(
         client_module.Video,
-        SimpleNamespace(ratingKey="episode-key", updatedAt=None),
+        SimpleNamespace(
+            ratingKey="episode-key",
+            updatedAt=None,
+            lastViewedAt=None,
+            lastRatedAt=None,
+            addedAt=None,
+        ),
     )
 
     assert plex_client.is_on_continue_watching(section, show)

@@ -40,6 +40,7 @@ class _FrozenCacheEntry:
 class PlexClient:
     """High-level Plex client wrapper used by the library provider."""
 
+    _CONTINUE_CACHE_TTL: ClassVar[timedelta] = timedelta(seconds=55)
     _WATCHLIST_CACHE_TTL: ClassVar[timedelta] = timedelta(minutes=5)
 
     def __init__(
@@ -353,21 +354,25 @@ class PlexClient:
         item: Video,
     ) -> bool:
         """Determine whether the given item appears in the Continue Watching hub."""
+        now = datetime.now(tz=UTC)
         cache_entry = self._continue_cache.get(str(section.key))
-        # Invalidate cache if the item's last updated time is after cache creation
-        should_refresh = cache_entry is None
-        if cache_entry is not None and item.updatedAt is not None:
-            timestamps = [
-                t
-                for t in (item.addedAt, item.updatedAt, item.lastViewedAt)
-                if t is not None
-            ]
-            item_updated_at = (
-                normalize_local_datetime(max(timestamps)) if timestamps else None
-            )
 
-            if item_updated_at is not None and item_updated_at > cache_entry.cached_at:
-                should_refresh = True
+        # Refresh when no cache exists, TTL expired, or an item timestamp is newer
+        # than the cache. The TTL acts as a safety net because Plex doesn't always
+        # propagate episode-level activity to show-level timestamps.
+        should_refresh = (
+            cache_entry is None
+            or (cache_entry.cached_at + self._CONTINUE_CACHE_TTL <= now)
+            or any(
+                t is not None and t > cache_entry.cached_at
+                for t in (
+                    normalize_local_datetime(item.updatedAt),
+                    normalize_local_datetime(item.lastViewedAt),
+                    normalize_local_datetime(item.lastRatedAt),
+                    normalize_local_datetime(item.addedAt),
+                )
+            )
+        )
 
         if should_refresh:
             rating_keys: set[str] = set()
@@ -380,10 +385,7 @@ class PlexClient:
                     if key is not None:
                         rating_keys.add(str(key))
 
-            cache_entry = _FrozenCacheEntry(
-                keys=frozenset(rating_keys),
-                cached_at=datetime.now(tz=UTC),
-            )
+            cache_entry = _FrozenCacheEntry(keys=frozenset(rating_keys), cached_at=now)
             self._continue_cache[str(section.key)] = cache_entry
 
         assert cache_entry is not None
