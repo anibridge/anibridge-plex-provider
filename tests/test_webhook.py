@@ -44,11 +44,8 @@ def test_webhook_event_helpers_resolve_expected_fields():
     """event_type, account_id, and rating key helpers work."""
     payload = PlexWebhook(
         event=PlexWebhookEventType.PLAY.value,
-        user=True,
-        owner=True,
         Account=Account(id=4),
         Server=None,
-        Player=None,
         Metadata=Metadata(
             ratingKey="episode",
             parentRatingKey="season",
@@ -67,13 +64,12 @@ async def test_from_request_handles_multipart_form_payload():
     stub_request = _StubRequest(
         headers={"content-type": "multipart/form-data"},
         query_params={"format": "plex"},
-        form_payload='{"event": "media.stop", "user": true, "owner": false}',
+        form_payload='{"event": "media.stop"}',
     )
 
     payload = await WebhookParser.from_request(cast(Any, stub_request))
     assert isinstance(payload, PlexWebhook)
     assert payload.event_type is PlexWebhookEventType.STOP
-    assert payload.owner is False
 
 
 @pytest.mark.asyncio
@@ -82,7 +78,7 @@ async def test_from_request_falls_back_to_json_body():
     stub_request = _StubRequest(
         headers={"content-type": "application/json"},
         query_params={"format": "plex"},
-        json_payload={"event": "library.on.deck", "user": True, "owner": True},
+        json_payload={"event": "library.on.deck"},
     )
 
     payload = await WebhookParser.from_request(cast(Any, stub_request))
@@ -96,7 +92,7 @@ async def test_from_request_defaults_blank_format_to_plex():
     stub_request = _StubRequest(
         headers={"content-type": "application/json"},
         query_params={"format": ""},
-        json_payload={"event": "library.on.deck", "user": True, "owner": True},
+        json_payload={"event": "library.on.deck"},
     )
 
     payload = await WebhookParser.from_request(cast(Any, stub_request))

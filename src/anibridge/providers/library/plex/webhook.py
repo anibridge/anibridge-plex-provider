@@ -1,10 +1,9 @@
 """Plex webhook implementation."""
 
 from enum import StrEnum
-from functools import cached_property
 from typing import TYPE_CHECKING, ClassVar
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 if TYPE_CHECKING:
     from starlette.requests import Request
@@ -32,69 +31,77 @@ class PlexWebhookEventType(StrEnum):
 class Account(BaseModel):
     """Represents a Plex account involved in a webhook event."""
 
+    model_config = ConfigDict(extra="ignore")
+
     id: int | None = None
-    thumb: str | None = None
-    title: str | None = None
+    # thumb: str | None = None
+    # title: str | None = None
 
 
 class Server(BaseModel):
     """Represents a Plex server involved in a webhook event."""
 
-    title: str | None = None
-    uuid: str | None = None
+    model_config = ConfigDict(extra="ignore")
+
+    # title: str | None = None
+    # uuid: str | None = None
 
 
 class Player(BaseModel):
     """Represents a Plex player involved in a webhook event."""
 
-    local: bool | None = None
-    publicAddress: str | None = None
-    title: str | None = None
-    uuid: str | None = None
+    model_config = ConfigDict(extra="ignore")
+
+    # local: bool | None = None
+    # publicAddress: str | None = None
+    # title: str | None = None
+    # uuid: str | None = None
 
 
 class Metadata(BaseModel):
     """Represents metadata information received from a Plex webhook event."""
 
-    librarySectionType: str | None = None
+    model_config = ConfigDict(extra="ignore")
+
+    # librarySectionType: str | None = None
     ratingKey: str | None = None
     key: str | None = None
     parentRatingKey: str | None = None
     grandparentRatingKey: str | None = None
-    guid: str | None = None
+    # guid: str | None = None
     librarySectionID: int | None = None
-    type: str | None = None
+    # type: str | None = None
     title: str | None = None
-    year: int | None = None
+    # year: int | None = None
     grandparentKey: str | None = None
     parentKey: str | None = None
-    grandparentTitle: str | None = None
-    parentTitle: str | None = None
-    summary: str | None = None
-    index: int | None = None
-    parentIndex: int | None = None
-    ratingCount: int | None = None
-    thumb: str | None = None
-    art: str | None = None
-    parentThumb: str | None = None
-    grandparentThumb: str | None = None
-    grandparentArt: str | None = None
-    addedAt: int | None = None
-    updatedAt: int | None = None
+    # grandparentTitle: str | None = None
+    # parentTitle: str | None = None
+    # summary: str | None = None
+    # index: int | None = None
+    # parentIndex: int | None = None
+    # ratingCount: int | None = None
+    # thumb: str | None = None
+    # art: str | None = None
+    # parentThumb: str | None = None
+    # grandparentThumb: str | None = None
+    # grandparentArt: str | None = None
+    # addedAt: int | None = None
+    # updatedAt: int | None = None
 
 
 class PlexWebhook(BaseModel):
     """Represents a Plex webhook event."""
 
     event: str | None = None
-    user: bool | None = None
-    owner: bool | None = None
+    # user: bool | None = None
+    # owner: bool | None = None
     account: Account | None = Field(None, alias="Account")
-    server: Server | None = Field(None, alias="Server")
-    player: Player | None = Field(None, alias="Player")
+    # server: Server | None = Field(None, alias="Server")
+    # player: Player | None = Field(None, alias="Player")
     metadata: Metadata | None = Field(None, alias="Metadata")
 
-    @cached_property
+    @property
     def event_type(self) -> PlexWebhookEventType | None:
         """The webhook event type."""
         if not self.event:
@@ -104,12 +111,12 @@ class PlexWebhook(BaseModel):
         except ValueError:
             return None
 
-    @cached_property
+    @property
     def account_id(self) -> int | None:
         """The webhook owner's Plex account ID."""
         return self.account.id if self.account and self.account.id is not None else None
 
-    @cached_property
+    @property
     def top_level_rating_key(self) -> str | None:
         """The top-level rating key for the media item."""
         if not self.metadata:
@@ -123,6 +130,8 @@ class PlexWebhook(BaseModel):
 
 class TautulliWebhook(BaseModel):
     """Represents a normalized Tautulli webhook payload."""
+
+    model_config = ConfigDict(extra="ignore")
 
     _TAUTULLI_ACTION_MAP: ClassVar[dict[str, PlexWebhookEventType]] = {
         "play": PlexWebhookEventType.PLAY,
@@ -143,7 +152,7 @@ class TautulliWebhook(BaseModel):
     parent_rating_key: str | None = None
     grandparent_rating_key: str | None = None
 
-    @cached_property
+    @property
     def event_type(self) -> PlexWebhookEventType | None:
         """The webhook event type normalized to Plex event enum values."""
         if not self.action:
@@ -151,7 +160,7 @@ class TautulliWebhook(BaseModel):
         normalized = str(self.action).strip().lower()
         return self._TAUTULLI_ACTION_MAP.get(normalized)
 
-    @cached_property
+    @property
     def account_id(self) -> int | None:
         """The webhook owner's Plex account ID if present."""
         if self.user_id is None:
@@ -161,7 +170,7 @@ class TautulliWebhook(BaseModel):
         except TypeError, ValueError:
             return None
 
-    @cached_property
+    @property
     def top_level_rating_key(self) -> str | None:
         """The top-level rating key for the media item."""
         return self.grandparent_rating_key or self.parent_rating_key or self.rating_key
