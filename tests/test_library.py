@@ -382,6 +382,7 @@ async def test_parse_webhook_filters_user(
             self.top_level_rating_key = rating_key
             self.event = event
             self.event_type = library_module.PlexWebhookEventType.SCROBBLE
+            self.section_key = None
 
     async def fake_from_request(_request):
         return StubWebhook(account_id=1, rating_key="key", event="media.scrobble")
@@ -418,6 +419,7 @@ async def test_parse_webhook_uses_normalized_event_type(
             self.top_level_rating_key = "key"
             self.event = "created"
             self.event_type = library_module.PlexWebhookEventType.MEDIA_ADDED
+            self.section_key = None
 
     async def fake_from_request(_request):
         return StubWebhook()
@@ -462,6 +464,7 @@ async def test_parse_webhook_ignores_mismatched_account(
         top_level_rating_key = "other"
         event = "media.scrobble"
         event_type = library_module.PlexWebhookEventType.SCROBBLE
+        section_key = None
 
     async def fake_from_request(_request):
         return StubWebhook()
@@ -495,6 +498,7 @@ async def test_parse_webhook_matches_home_user_id(
         top_level_rating_key = "managed-key"
         event = "media.scrobble"
         event_type = library_module.PlexWebhookEventType.SCROBBLE
+        section_key = None
 
     async def fake_from_request(_request):
         return StubWebhook()

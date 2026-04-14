@@ -127,6 +127,13 @@ class PlexWebhook(BaseModel):
             or self.metadata.ratingKey
         )
 
+    @property
+    def section_key(self) -> str | None:
+        """The library section key if present."""
+        if not self.metadata or self.metadata.librarySectionID is None:
+            return None
+        return str(self.metadata.librarySectionID)
+
 
 class TautulliWebhook(BaseModel):
     """Represents a normalized Tautulli webhook payload."""
@@ -151,6 +158,7 @@ class TautulliWebhook(BaseModel):
     rating_key: str | None = None
     parent_rating_key: str | None = None
     grandparent_rating_key: str | None = None
+    library_section_key: int | str | None = None
 
     @property
     def event_type(self) -> PlexWebhookEventType | None:
@@ -174,6 +182,13 @@ class TautulliWebhook(BaseModel):
     def top_level_rating_key(self) -> str | None:
         """The top-level rating key for the media item."""
         return self.grandparent_rating_key or self.parent_rating_key or self.rating_key
+
+    @property
+    def section_key(self) -> str | None:
+        """The library section key if present."""
+        if self.library_section_key is None:
+            return None
+        return str(self.library_section_key)
 
 
 class WebhookParser:

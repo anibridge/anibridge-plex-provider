@@ -45,7 +45,6 @@ def test_webhook_event_helpers_resolve_expected_fields():
     payload = PlexWebhook(
         event=PlexWebhookEventType.PLAY.value,
         Account=Account(id=4),
-        Server=None,
         Metadata=Metadata(
             ratingKey="episode",
             parentRatingKey="season",

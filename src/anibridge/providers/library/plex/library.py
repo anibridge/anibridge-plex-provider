@@ -512,15 +512,29 @@ class PlexLibraryProvider(LibraryProvider):
             )
             and user_matches
         ):
-            self.log.debug(
-                f"Webhook: Matched webhook event {payload.event_type} to provider user "
-                f"ID {self._user.key} for sync"
+            if (
+                payload.section_key is not None
+                and payload.section_key not in self._section_map
+            ):
+                self.log.debug(
+                    "Webhook: Ignoring webhook for rating key %s because section key "
+                    "%s is not in the provider's enabled sections",
+                    payload.top_level_rating_key,
+                    payload.section_key,
+                )
+                return (False, tuple())
+
+            self.log.info(
+                "Matched webhook event %s to provider user ID %s for sync",
+                payload.event_type,
+                self._user.key,
             )
             return (True, (payload.top_level_rating_key,))
 
         self.log.debug(
-            f"Webhook: Ignoring event {payload.event_type} for account ID "
-            f"{payload.account_id}"
+            "Ignoring webhook event %s for account ID %s",
+            payload.event_type,
+            payload.account_id,
         )
         return (False, tuple())
 
