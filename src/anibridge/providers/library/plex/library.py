@@ -482,18 +482,16 @@ class PlexLibraryProvider(LibraryProvider):
     async def parse_webhook(self, request: Request) -> tuple[bool, Sequence[str]]:
         """Parse a Plex webhook request and determine affected media items."""
         if not self._user:
-            self.log.error(
-                "Webhook: Received webhook request before provider initialization"
-            )
+            self.log.error("Received webhook request before provider initialization")
             raise RuntimeError("Provider must be initialized before parsing webhooks")
 
         payload = await WebhookParser.from_request(request)
 
         if not payload.account_id:
-            self.log.warning("Webhook: No account ID found in payload")
+            self.log.warning("No account ID found in webhook payload")
             raise ValueError("No account ID found in webhook payload")
         if not payload.top_level_rating_key:
-            self.log.warning("Webhook: No rating key found in payload")
+            self.log.warning("No rating key found in webhook payload")
             raise ValueError("No rating key found in webhook payload")
 
         webhook_account_id = payload.account_id
@@ -517,7 +515,7 @@ class PlexLibraryProvider(LibraryProvider):
                 and payload.section_key not in self._section_map
             ):
                 self.log.debug(
-                    "Webhook: Ignoring webhook for rating key %s because section key "
+                    "Ignoring webhook for rating key %s because section key "
                     "%s is not in the provider's enabled sections",
                     payload.top_level_rating_key,
                     payload.section_key,
