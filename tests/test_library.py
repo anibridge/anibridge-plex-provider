@@ -33,17 +33,17 @@ class StubBaseVideo:
             SimpleNamespace(id="imdb://tt12345"),
             SimpleNamespace(id="com.plexapp.agents.thetvdb://42"),
         ]
-        self.guid = guid or "plex://movie/1"
-        self.thumb = "/thumb"
-        self.userRating = 7.5
+        self.guid: str = guid or "plex://movie/1"
+        self.thumb: str | None = "/thumb"
+        self.userRating: float | None = 7.5
         self.lastRatedAt: datetime | None = None
-        self.viewCount = 2
-        self.librarySectionID = 1
-        self.lastViewedAt = datetime.now(tz=UTC)
-        self.parentIndex = 1
-        self.index = 1
-        self.on_deck = True
-        self.watchlisted = True
+        self.viewCount: int = 2
+        self.librarySectionID: int = 1
+        self.lastViewedAt: datetime | None = datetime.now(tz=UTC)
+        self.parentIndex: int = 1
+        self.index: int = 1
+        self.on_deck: bool = True
+        self.watchlisted: bool = True
         self._section = SimpleNamespace(settings=lambda: [])
         self._episodes: list[StubEpisode] = []
         self._seasons: list[StubSeason] = []
@@ -563,7 +563,7 @@ async def test_media_helpers_cover_external_and_poster_paths(
     )
     assert media.external_url is not None
 
-    movie.guid = None
+    movie.guid = None  # ty:ignore[invalid-assignment]
     assert media.external_url is None
 
     fake_client.get_thumb_url = cast(Any, lambda _item: "data:image/jpeg;base64,ok")
@@ -592,8 +592,8 @@ async def test_mapping_descriptors_and_rating_helpers(
 
     movie.guid = "broken-guid"
     movie.guids = [SimpleNamespace(id=""), SimpleNamespace(id="imdb://tt777?lang=en")]
-    movie.userRating = "bad"
-    movie.viewCount = None
+    movie.userRating = "bad"  # ty:ignore[invalid-assignment]
+    movie.viewCount = None  # ty:ignore[invalid-assignment]
 
     entry = library_module.PlexLibraryMovie(
         provider,
