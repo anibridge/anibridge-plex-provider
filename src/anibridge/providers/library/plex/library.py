@@ -229,7 +229,7 @@ class PlexLibraryShow(PlexLibraryEntry, LibraryShow):
         seasons = self.seasons()
         return tuple(episode for season in seasons for episode in season.episodes())
 
-    @ttl_cache(ttl=15)
+    @ttl_cache(15, maxsize=1)
     def seasons(self) -> Sequence[PlexLibrarySeason]:
         """Return all seasons belonging to the show."""
         return tuple(
@@ -283,7 +283,7 @@ class PlexLibrarySeason(PlexLibraryEntry, LibrarySeason):
         self._show = show
         self.index = self._item.index
 
-    @ttl_cache(15)
+    @ttl_cache(15, maxsize=1)
     def episodes(self) -> Sequence[PlexLibraryEpisode]:
         """Return the episodes belonging to this season."""
         return tuple(
