@@ -6,6 +6,7 @@ from collections.abc import Sequence
 from datetime import datetime
 from typing import TYPE_CHECKING, cast
 
+import msgspec
 import plexapi.library as plexapi_library
 import plexapi.video as plexapi_video
 from anibridge.library import (
@@ -390,7 +391,10 @@ class PlexLibraryProvider(LibraryProvider):
     def __init__(self, *, logger: ProviderLogger, config: dict | None = None) -> None:
         """Parse configuration and prepare provider defaults."""
         super().__init__(logger=logger, config=config)
-        self.parsed_config = PlexProviderConfig.model_validate(config or {})
+        config_data = dict(config or {})
+        if "home_user" not in config_data and "user" in config_data:
+            config_data["home_user"] = config_data["user"]
+        self.parsed_config = msgspec.convert(config_data, type=PlexProviderConfig)
 
         self._client = PlexClient(
             logger=self.log,

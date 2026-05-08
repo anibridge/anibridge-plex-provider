@@ -3,11 +3,10 @@
 from dataclasses import dataclass
 from typing import Any, cast
 
+import msgspec
 import pytest
 
 from anibridge.providers.library.plex.webhook import (
-    Account,
-    Metadata,
     PlexWebhook,
     PlexWebhookEventType,
     TautulliWebhook,
@@ -42,14 +41,17 @@ class _StubRequest:
 
 def test_webhook_event_helpers_resolve_expected_fields():
     """event_type, account_id, and rating key helpers work."""
-    payload = PlexWebhook(
-        event=PlexWebhookEventType.PLAY.value,
-        Account=Account(id=4),
-        Metadata=Metadata(
-            ratingKey="episode",
-            parentRatingKey="season",
-            grandparentRatingKey="show",
-        ),
+    payload = msgspec.convert(
+        {
+            "event": PlexWebhookEventType.PLAY.value,
+            "Account": {"id": 4},
+            "Metadata": {
+                "ratingKey": "episode",
+                "parentRatingKey": "season",
+                "grandparentRatingKey": "show",
+            },
+        },
+        type=PlexWebhook,
     )
 
     assert payload.event_type is PlexWebhookEventType.PLAY

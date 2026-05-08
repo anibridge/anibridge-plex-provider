@@ -1,36 +1,48 @@
 """Plex provider configuration."""
 
-from pydantic import BaseModel, ConfigDict, Field
+from typing import Annotated
+
+import msgspec
 
 
-class PlexProviderConfig(BaseModel):
+class PlexProviderConfig(msgspec.Struct, kw_only=True):
     """Configuration for the Plex provider."""
 
-    url: str = Field(default=..., description="The base URL of the Plex server.")
-    token: str = Field(
-        default=..., description="The Plex authentication token for the target user."
-    )
-    home_user: str | None = Field(
-        default=None,
-        description=(
-            "Optional Plex home user identifier. "
-            "Only used when the provided token belongs to a Plex Home admin."
+    url: Annotated[
+        str,
+        msgspec.Meta(description="The base URL of the Plex server."),
+    ]
+    token: Annotated[
+        str,
+        msgspec.Meta(description="The Plex authentication token for the target user."),
+    ]
+    home_user: (
+        Annotated[
+            str,
+            msgspec.Meta(
+                description=(
+                    "Optional Plex home user identifier. "
+                    "Only used when the provided token belongs to a Plex Home admin."
+                )
+            ),
+        ]
+        | None
+    ) = None
+    sections: Annotated[
+        list[str],
+        msgspec.Meta(
+            description=(
+                "A list of Plex library section names to constrain synchronization to."
+            )
         ),
-        validation_alias="user",
-    )
-    sections: list[str] = Field(
-        default_factory=list,
-        description=(
-            "A list of Plex library section names to constrain synchronization to."
+    ] = msgspec.field(default_factory=list)
+    genres: Annotated[
+        list[str],
+        msgspec.Meta(description="A list of genres to constrain synchronization to."),
+    ] = msgspec.field(default_factory=list)
+    strict: Annotated[
+        bool,
+        msgspec.Meta(
+            description="Whether to enforce strict matching when resolving mappings."
         ),
-    )
-    genres: list[str] = Field(
-        default_factory=list,
-        description="A list of genres to constrain synchronization to.",
-    )
-    strict: bool = Field(
-        default=True,
-        description="Whether to enforce strict matching when resolving mappings.",
-    )
-
-    model_config = ConfigDict(populate_by_name=True)
+    ] = True

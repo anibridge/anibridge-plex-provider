@@ -3,7 +3,7 @@
 from enum import StrEnum
 from typing import TYPE_CHECKING, ClassVar
 
-from pydantic import BaseModel, ConfigDict, Field
+import msgspec
 
 if TYPE_CHECKING:
     from starlette.requests import Request
@@ -28,29 +28,23 @@ class PlexWebhookEventType(StrEnum):
     SHARED_PLAYBACK_STARTED = "playback.started"
 
 
-class Account(BaseModel):
+class Account(msgspec.Struct):
     """Represents a Plex account involved in a webhook event."""
-
-    model_config = ConfigDict(extra="ignore")
 
     id: int | None = None
     # thumb: str | None = None
     # title: str | None = None
 
 
-class Server(BaseModel):
+class Server(msgspec.Struct):
     """Represents a Plex server involved in a webhook event."""
-
-    model_config = ConfigDict(extra="ignore")
 
     # title: str | None = None
     # uuid: str | None = None
 
 
-class Player(BaseModel):
+class Player(msgspec.Struct):
     """Represents a Plex player involved in a webhook event."""
-
-    model_config = ConfigDict(extra="ignore")
 
     # local: bool | None = None
     # publicAddress: str | None = None
@@ -58,23 +52,31 @@ class Player(BaseModel):
     # uuid: str | None = None
 
 
-class Metadata(BaseModel):
+class Metadata(
+    msgspec.Struct,
+    rename={
+        "rating_key": "ratingKey",
+        "parent_rating_key": "parentRatingKey",
+        "grandparent_rating_key": "grandparentRatingKey",
+        "library_section_id": "librarySectionID",
+        "grandparent_key": "grandparentKey",
+        "parent_key": "parentKey",
+    },
+):
     """Represents metadata information received from a Plex webhook event."""
 
-    model_config = ConfigDict(extra="ignore")
-
     # librarySectionType: str | None = None
-    ratingKey: str | None = None
+    rating_key: str | None = None
     key: str | None = None
-    parentRatingKey: str | None = None
-    grandparentRatingKey: str | None = None
+    parent_rating_key: str | None = None
+    grandparent_rating_key: str | None = None
     # guid: str | None = None
-    librarySectionID: int | None = None
+    library_section_id: int | None = None
     # type: str | None = None
     title: str | None = None
     # year: int | None = None
-    grandparentKey: str | None = None
-    parentKey: str | None = None
+    grandparent_key: str | None = None
+    parent_key: str | None = None
     # grandparentTitle: str | None = None
     # parentTitle: str | None = None
     # summary: str | None = None
@@ -90,16 +92,19 @@ class Metadata(BaseModel):
     # updatedAt: int | None = None
 
 
-class PlexWebhook(BaseModel):
+class PlexWebhook(
+    msgspec.Struct,
+    rename={"account": "Account", "metadata": "Metadata"},
+):
     """Represents a Plex webhook event."""
 
     event: str | None = None
     # user: bool | None = None
     # owner: bool | None = None
-    account: Account | None = Field(None, alias="Account")
+    account: Account | None = None
     # server: Server | None = Field(None, alias="Server")
     # player: Player | None = Field(None, alias="Player")
-    metadata: Metadata | None = Field(None, alias="Metadata")
+    metadata: Metadata | None = None
 
     @property
     def event_type(self) -> PlexWebhookEventType | None:
@@ -122,23 +127,21 @@ class PlexWebhook(BaseModel):
         if not self.metadata:
             return None
         return (
-            self.metadata.grandparentRatingKey
-            or self.metadata.parentRatingKey
-            or self.metadata.ratingKey
+            self.metadata.grandparent_rating_key
+            or self.metadata.parent_rating_key
+            or self.metadata.rating_key
         )
 
     @property
     def section_key(self) -> str | None:
         """The library section key if present."""
-        if not self.metadata or self.metadata.librarySectionID is None:
+        if not self.metadata or self.metadata.library_section_id is None:
             return None
-        return str(self.metadata.librarySectionID)
+        return str(self.metadata.library_section_id)
 
 
-class TautulliWebhook(BaseModel):
+class TautulliWebhook(msgspec.Struct):
     """Represents a normalized Tautulli webhook payload."""
-
-    model_config = ConfigDict(extra="ignore")
 
     _TAUTULLI_ACTION_MAP: ClassVar[dict[str, PlexWebhookEventType]] = {
         "play": PlexWebhookEventType.PLAY,
@@ -244,7 +247,7 @@ class WebhookParser:
                 if isinstance(payload_raw, bytes):
                     payload_raw = payload_raw.decode("utf-8", "replace")
                 try:
-                    return PlexWebhook.model_validate_json(str(payload_raw))
+                    return msgspec.json.decode(str(payload_raw), type=PlexWebhook)
                 except Exception as e:
                     raise ValueError(
                         f"Invalid Plex payload JSON in 'payload' field: {e}"
@@ -252,7 +255,7 @@ class WebhookParser:
             elif content_type == "application/json":
                 try:
                     data = await request.json()
-                    return PlexWebhook.model_validate(data)
+                    return msgspec.convert(data, type=PlexWebhook)
                 except Exception as e:
                     raise ValueError(f"Invalid Plex JSON payload: {e}") from e
             else:
@@ -274,7 +277,7 @@ class WebhookParser:
                 raise ValueError(f"Invalid JSON body: {e}") from e
             if not isinstance(data, dict):
                 raise ValueError("Invalid payload structure: expected JSON object")
-            return TautulliWebhook.model_validate(data)
+            return msgspec.convert(data, type=TautulliWebhook)
 
         else:
             raise ValueError(
