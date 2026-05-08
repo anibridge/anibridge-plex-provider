@@ -33,7 +33,7 @@ from anibridge.providers.library.plex.config import PlexProviderConfig
 from anibridge.providers.library.plex.webhook import PlexWebhookEventType, WebhookParser
 
 if TYPE_CHECKING:
-    from starlette.requests import Request
+    from litestar.connection.request import Request
 
 _GUID_NAMESPACE_MAP: dict[MediaKind, dict[str, str]] = {
     MediaKind.MOVIE: {

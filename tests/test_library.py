@@ -8,7 +8,7 @@ from typing import Any, ClassVar, cast
 import pytest
 import pytest_asyncio
 from anibridge.utils.types import ProviderLogger
-from starlette.requests import Request
+from litestar.connection.request import Request
 
 import anibridge.providers.library.plex.client as client_module
 import anibridge.providers.library.plex.library as library_module

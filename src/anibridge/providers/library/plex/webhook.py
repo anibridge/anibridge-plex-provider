@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, ClassVar
 import msgspec
 
 if TYPE_CHECKING:
-    from starlette.requests import Request
+    from litestar.connection.request import Request
 
 type WebhookPayload = PlexWebhook | TautulliWebhook
 
