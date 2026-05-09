@@ -426,7 +426,7 @@ class PlexLibraryProvider(LibraryProvider):
         if not self._client.is_managed_user:
             self._community_client = PlexCommunityClient(
                 plex_token=self._client.account.authToken,
-                logger=self.log.getChild("community_client"),
+                logger=self.log,
             )
 
         self.log.debug(
