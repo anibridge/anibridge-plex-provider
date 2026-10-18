@@ -149,6 +149,7 @@ class TautulliWebhook(msgspec.Struct):
         "stop": PlexWebhookEventType.STOP,
         "resume": PlexWebhookEventType.RESUME,
         "scrobble": PlexWebhookEventType.SCROBBLE,
+        "watched": PlexWebhookEventType.SCROBBLE,
         "rate": PlexWebhookEventType.RATE,
         "rated": PlexWebhookEventType.RATE,
         "created": PlexWebhookEventType.MEDIA_ADDED,
