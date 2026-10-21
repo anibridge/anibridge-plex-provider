@@ -23,9 +23,7 @@ def _account_stub(**kwargs: Any) -> client_module.MyPlexAccount:
 def _session_stub(machine_id: str | None = "machine-1") -> Any:
     class StubResponse:
         def __init__(self) -> None:
-            machine_id_attr = (
-                f' machineIdentifier="{machine_id}"' if machine_id else ""
-            )
+            machine_id_attr = f' machineIdentifier="{machine_id}"' if machine_id else ""
             self.content = f"<MediaContainer{machine_id_attr}/>".encode()
 
     class StubSession:
@@ -179,9 +177,7 @@ def test_initialize_switches_home_user_when_requested(monkeypatch: pytest.Monkey
         friendlyName="child",
         users=lambda: [],
         resources=lambda: [
-            SimpleNamespace(
-                clientIdentifier="machine-1", accessToken="switched-token"
-            )
+            SimpleNamespace(clientIdentifier="machine-1", accessToken="switched-token")
         ],
     )
 
