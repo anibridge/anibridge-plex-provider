@@ -48,6 +48,9 @@ select = ["B", "D", "DOC", "E", "F", "I", "RUF", "SIM", "UP", "W"]
 [tool.ruff.lint.pydocstyle]
 convention = "google"
 
+[tool.ty.src]
+exclude = ["typings"]
+
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]
